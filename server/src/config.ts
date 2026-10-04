@@ -38,6 +38,15 @@ export const config = {
   supabaseUrl: process.env.SUPABASE_URL ?? '',
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
   storageBucket: env('SUPABASE_BUCKET', 'documents'),
+  /**
+   * Where encrypted scans are kept: "db" (a table in the Supabase database, the default),
+   * "supabase" (a private Storage bucket, needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+   * or "disk" (DATA_DIR/files, for local development and tests).
+   */
+  fileStorage: env(
+    'FILE_STORAGE',
+    process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? 'supabase' : 'db',
+  ) as 'db' | 'supabase' | 'disk',
   /** Shared secret for POST /api/cron/daily (called by Supabase pg_cron). Empty disables the endpoint. */
   cronSecret: process.env.CRON_SECRET ?? '',
   /** Set to false on hosts that sleep (Render free); the daily job then comes from Supabase pg_cron. */

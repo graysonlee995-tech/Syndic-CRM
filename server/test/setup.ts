@@ -11,6 +11,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-test-'));
 process.env.FILE_ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
 process.env.SMTP_HOST = '';
 process.env.SUPABASE_URL = '';
+process.env.FILE_STORAGE = 'disk';
 process.env.IN_APP_SCHEDULER = 'false';
 
 const base = process.env.TEST_DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/postgres';

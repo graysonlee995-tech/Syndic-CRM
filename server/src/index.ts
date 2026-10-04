@@ -9,7 +9,7 @@ const app = createApp();
 
 app.listen(config.port, () => {
   console.log(`Travel CRM server listening on http://localhost:${config.port}`);
-  console.log(`File storage: ${config.supabaseUrl ? `Supabase bucket "${config.storageBucket}"` : config.dataDir}`);
+  console.log(`File storage: ${config.fileStorage === 'disk' ? config.dataDir : config.fileStorage}`);
   if (!mailConfigured) console.warn('SMTP is not configured: expiry alert emails will be logged, not sent.');
   startScheduler().catch((err) => console.error('[scheduler] failed to start:', err));
 });

@@ -17,7 +17,7 @@ A private CRM for a travel agency. Employees sign in to manage client records an
 
 ## Hosting: Supabase + Vercel (free)
 
-* **Supabase** holds the data: a Postgres database (private `crm` schema, row level security on) and a private Storage bucket for the scans. Scans are encrypted by the server before upload, so the bucket only holds ciphertext.
+* **Supabase** holds everything: a Postgres database in a private `crm` schema (row level security on, not exposed by Supabase's public API), including the scans in the `files` table. Scans are encrypted by the server before they are stored, so the database only holds ciphertext. The app connects as its own `crm_app` login, which owns only the `crm` schema.
 * **Vercel** runs the app: the React UI as static files and the Express API as a serverless function (`api/index.js`). **Vercel Cron** (`vercel.json`) calls `/api/cron/daily` every day at 03:00 UTC (08:00 Pakistan) for the expiry and birthday emails.
 * Uploads are limited to **4 MB** per file because Vercel functions accept at most 4.5 MB per request.
 

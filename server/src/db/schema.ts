@@ -9,7 +9,10 @@
 export const NOW_SQL = `to_char(timezone('utc', now()), 'YYYY-MM-DD HH24:MI:SS')`;
 
 export const SCHEMA = /* sql */ `
-CREATE SCHEMA IF NOT EXISTS crm;
+-- Only create the schema when it is missing, so a login without CREATE rights on the database still works.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'crm') THEN CREATE SCHEMA crm; END IF;
+END $$;
 SET search_path TO crm;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -109,6 +112,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 
+-- Encrypted document scans (AES-256-GCM, encrypted by the server before they are stored).
+CREATE TABLE IF NOT EXISTS files (
+  name TEXT PRIMARY KEY,
+  data BYTEA NOT NULL,
+  created_at TEXT NOT NULL DEFAULT ${NOW_SQL}
+);
+
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
@@ -117,4 +127,5 @@ ALTER TABLE alert_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE birthday_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE files ENABLE ROW LEVEL SECURITY;
 `;

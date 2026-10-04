@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config.js';
+import { one, q } from '../db/index.js';
 
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
@@ -36,12 +37,10 @@ export function detectMime(buf: Buffer): AllowedMime | null {
   return null;
 }
 
-// ---- Storage: a private Supabase Storage bucket in production, DATA_DIR/files locally.
+// ---- Storage: a table in the database (default), a private Supabase Storage bucket, or DATA_DIR/files locally.
 // Files are encrypted before they leave the server, so the bucket only ever holds ciphertext.
 
-const useSupabase = Boolean(config.supabaseUrl && config.supabaseServiceKey);
-
-const supabase = useSupabase
+const supabase = config.fileStorage === 'supabase'
   ? createClient(config.supabaseUrl, config.supabaseServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     })
@@ -80,6 +79,8 @@ export async function saveFile(plain: Buffer): Promise<string> {
       .from(config.storageBucket)
       .upload(name, body, { contentType: 'application/octet-stream', upsert: false });
     if (error) throw new Error(`File upload to storage failed: ${error.message}`);
+  } else if (config.fileStorage === 'db') {
+    await q('INSERT INTO files (name, data) VALUES ($1, $2)', [checkName(name), body]);
   } else {
     fs.mkdirSync(filesDir(), { recursive: true });
     fs.writeFileSync(path.join(filesDir(), checkName(name)), body);
@@ -94,6 +95,11 @@ export async function readFile(name: string): Promise<Buffer> {
     if (error || !data) throw new Error(`File download from storage failed: ${error?.message ?? 'no data'}`);
     return decrypt(Buffer.from(await data.arrayBuffer()));
   }
+  if (config.fileStorage === 'db') {
+    const row = await one<{ data: Buffer }>('SELECT data FROM files WHERE name = $1', [name]);
+    if (!row) throw new Error(`Stored file ${name} not found`);
+    return decrypt(row.data);
+  }
   return decrypt(fs.readFileSync(path.join(filesDir(), name)));
 }
 
@@ -103,6 +109,10 @@ export async function removeFile(name: string | null | undefined): Promise<void>
   if (supabase) {
     const { error } = await supabase.storage.from(config.storageBucket).remove([name]);
     if (error) console.error(`[files] could not remove ${name}: ${error.message}`);
+    return;
+  }
+  if (config.fileStorage === 'db') {
+    await q('DELETE FROM files WHERE name = $1', [name]);
     return;
   }
   fs.rmSync(path.join(filesDir(), name), { force: true });

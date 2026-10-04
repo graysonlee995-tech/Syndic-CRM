@@ -19,7 +19,7 @@ async function checkout(): Promise<pg.PoolClient> {
   const client = await pool.connect();
   if (!prepared.has(client)) {
     try {
-      await client.query('CREATE SCHEMA IF NOT EXISTS crm; SET search_path TO crm');
+      await client.query('SET search_path TO crm');
     } catch (err) {
       client.release(err as Error);
       throw err;
