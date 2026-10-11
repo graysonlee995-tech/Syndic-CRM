@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Group, Loader, NumberInput, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Card, Code, Group, Loader, NumberInput, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
 import { IconAlertCircle, IconMail, IconPlayerPlay } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { api, notifyError, notifySuccess, queryClient } from '../api';
+import { api, notifyError, notifySuccess, queryClient, useAppConfig } from '../api';
 import type { Settings } from '../types';
 
 export function SettingsPage() {
@@ -10,6 +10,7 @@ export function SettingsPage() {
     queryKey: ['settings'],
     queryFn: () => api<{ settings: Settings; mailConfigured: boolean; timezone: string }>('/admin/settings'),
   });
+  const { scheduledAlerts } = useAppConfig();
   const [thresholds, setThresholds] = useState('');
   const [time, setTime] = useState('08:00');
   const [birthdayReminders, setBirthdayReminders] = useState(true);
@@ -87,14 +88,20 @@ export function SettingsPage() {
               value={thresholds}
               onChange={(e) => setThresholds(e.currentTarget.value)}
             />
-            <TextInput
-              label="Daily check time"
-              description={`Time zone: ${data.timezone}`}
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.currentTarget.value)}
-              maw={200}
-            />
+            {scheduledAlerts ? (
+              <TextInput
+                label="Daily check time"
+                description={`Time zone: ${data.timezone}`}
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.currentTarget.value)}
+                maw={200}
+              />
+            ) : (
+              <Text size="sm" c="dimmed">
+                The daily check runs once a day at the time set in <Code>vercel.json</Code> (08:00 Pakistan time by default).
+              </Text>
+            )}
             <Switch
               label="Email birthday reminders"
               description="A separate email listing clients whose birthday is coming up, once per client per year."

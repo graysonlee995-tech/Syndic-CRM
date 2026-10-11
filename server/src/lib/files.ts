@@ -1,9 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createClient } from '@supabase/supabase-js';
 import { config } from '../config.js';
-import { one, q } from '../db/index.js';
+import { one, run } from '../db/index.js';
 
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
@@ -37,83 +36,138 @@ export function detectMime(buf: Buffer): AllowedMime | null {
   return null;
 }
 
-// ---- Storage: a table in the database (default), a private Supabase Storage bucket, or DATA_DIR/files locally.
-// Files are encrypted before they leave the server, so the bucket only ever holds ciphertext.
-
-const supabase = config.fileStorage === 'supabase'
-  ? createClient(config.supabaseUrl, config.supabaseServiceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-  : null;
-
-const filesDir = () => path.join(config.dataDir, 'files');
-
 function checkName(name: string): string {
   if (!/^[a-f0-9-]{36}\.bin$/.test(name)) throw new Error('Invalid stored file name');
   return name;
 }
 
-let bucketReady: Promise<void> | null = null;
+// ---------------------------------------------------------------- storage backends
+// Files are always encrypted before they are stored, so the storage provider
+// only ever holds ciphertext.
 
-/** Creates the private bucket on first use if it does not exist yet. */
-function ensureBucket(): Promise<void> {
-  bucketReady ??= (async () => {
-    const { data } = await supabase!.storage.getBucket(config.storageBucket);
-    if (data) return;
-    const { error } = await supabase!.storage.createBucket(config.storageBucket, { public: false });
-    if (error && !/already exists/i.test(error.message)) throw error;
-  })().catch((err) => {
-    bucketReady = null;
-    throw err;
-  });
-  return bucketReady;
+interface Storage {
+  put(name: string, data: Buffer): Promise<void>;
+  get(name: string): Promise<Buffer>;
+  remove(name: string): Promise<void>;
 }
+
+const diskStorage = (): Storage => {
+  const dir = path.join(config.dataDir, 'files');
+  return {
+    async put(name, data) {
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.writeFile(path.join(dir, name), data);
+    },
+    get: (name) => fs.promises.readFile(path.join(dir, name)),
+    remove: (name) => fs.promises.rm(path.join(dir, name), { force: true }),
+  };
+};
+
+/** Private Supabase Storage bucket, used with the service role key (server side only). */
+const supabaseStorage = (): Storage => {
+  const { url, serviceRoleKey, bucket } = config.supabase;
+  const headers = { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey };
+  const objectUrl = (name: string) => `${url}/storage/v1/object/${bucket}/${name}`;
+  let bucketReady: Promise<void> | null = null;
+
+  async function fail(res: Response, what: string): Promise<never> {
+    throw new Error(`Supabase Storage ${what} failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
+  /** Creates the private bucket the first time it is needed. */
+  function ensureBucket(): Promise<void> {
+    bucketReady ??= (async () => {
+      const res = await fetch(`${url}/storage/v1/bucket/${bucket}`, { headers });
+      if (res.ok) return;
+      const created = await fetch(`${url}/storage/v1/bucket`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: bucket, name: bucket, public: false }),
+      });
+      if (!created.ok && created.status !== 409) await fail(created, 'bucket creation');
+    })().catch((err) => {
+      bucketReady = null;
+      throw err;
+    });
+    return bucketReady;
+  }
+
+  return {
+    async put(name, data) {
+      await ensureBucket();
+      const res = await fetch(objectUrl(name), {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/octet-stream', 'x-upsert': 'false' },
+        body: new Uint8Array(data),
+      });
+      if (!res.ok) await fail(res, 'upload');
+    },
+    async get(name) {
+      const res = await fetch(objectUrl(name), { headers });
+      if (!res.ok) await fail(res, 'download');
+      return Buffer.from(await res.arrayBuffer());
+    },
+    async remove(name) {
+      const res = await fetch(`${url}/storage/v1/object/${bucket}`, {
+        method: 'DELETE',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefixes: [name] }),
+      });
+      if (!res.ok && res.status !== 404) await fail(res, 'delete');
+    },
+  };
+};
+
+/** Encrypted files in the database's stored_files table (base64 over the wire keeps both drivers alike). */
+const databaseStorage = (): Storage => ({
+  async put(name, data) {
+    await run("INSERT INTO stored_files (name, data) VALUES (?, decode(?, 'base64'))", [name, data.toString('base64')]);
+  },
+  async get(name) {
+    const row = await one<{ data: string }>("SELECT encode(data, 'base64') AS data FROM stored_files WHERE name = ?", [name]);
+    if (!row) throw new Error(`Stored file ${name} not found`);
+    return Buffer.from(row.data.replace(/\s/g, ''), 'base64');
+  },
+  async remove(name) {
+    await run('DELETE FROM stored_files WHERE name = ?', [name]);
+  },
+});
+
+export const usingSupabaseStorage = Boolean(config.supabase.url && config.supabase.serviceRoleKey);
+/** Files live outside this machine (Supabase Storage or the Supabase database). */
+export const usingRemoteStorage = usingSupabaseStorage || Boolean(config.databaseUrl);
+const storage: Storage = usingSupabaseStorage
+  ? supabaseStorage()
+  : config.databaseUrl
+    ? databaseStorage()
+    : diskStorage();
 
 /** Encrypts and stores a file; returns the stored file name. */
 export async function saveFile(plain: Buffer): Promise<string> {
   const name = `${crypto.randomUUID()}.bin`;
-  const body = encrypt(plain);
-  if (supabase) {
-    await ensureBucket();
-    const { error } = await supabase.storage
-      .from(config.storageBucket)
-      .upload(name, body, { contentType: 'application/octet-stream', upsert: false });
-    if (error) throw new Error(`File upload to storage failed: ${error.message}`);
-  } else if (config.fileStorage === 'db') {
-    await q('INSERT INTO files (name, data) VALUES ($1, $2)', [checkName(name), body]);
-  } else {
-    fs.mkdirSync(filesDir(), { recursive: true });
-    fs.writeFileSync(path.join(filesDir(), checkName(name)), body);
-  }
+  await storage.put(name, encrypt(plain));
   return name;
 }
 
-export async function readFile(name: string): Promise<Buffer> {
-  checkName(name);
-  if (supabase) {
-    const { data, error } = await supabase.storage.from(config.storageBucket).download(name);
-    if (error || !data) throw new Error(`File download from storage failed: ${error?.message ?? 'no data'}`);
-    return decrypt(Buffer.from(await data.arrayBuffer()));
-  }
-  if (config.fileStorage === 'db') {
-    const row = await one<{ data: Buffer }>('SELECT data FROM files WHERE name = $1', [name]);
-    if (!row) throw new Error(`Stored file ${name} not found`);
-    return decrypt(row.data);
-  }
-  return decrypt(fs.readFileSync(path.join(filesDir(), name)));
+/** Stores an already-encrypted file under its existing name (used when copying data between servers). */
+export async function putEncryptedFile(name: string, encrypted: Buffer): Promise<void> {
+  await storage.put(checkName(name), encrypted);
 }
 
+export async function readFile(name: string): Promise<Buffer> {
+  return decrypt(await storage.get(checkName(name)));
+}
+
+/** Removes a stored file. Failures are logged, not thrown: the record is already gone. */
 export async function removeFile(name: string | null | undefined): Promise<void> {
   if (!name) return;
-  checkName(name);
-  if (supabase) {
-    const { error } = await supabase.storage.from(config.storageBucket).remove([name]);
-    if (error) console.error(`[files] could not remove ${name}: ${error.message}`);
-    return;
+  try {
+    await storage.remove(checkName(name));
+  } catch (err) {
+    console.error(`[files] could not remove ${name}:`, err);
   }
-  if (config.fileStorage === 'db') {
-    await q('DELETE FROM files WHERE name = $1', [name]);
-    return;
-  }
-  fs.rmSync(path.join(filesDir(), name), { force: true });
+}
+
+export async function removeFiles(names: (string | null | undefined)[]): Promise<void> {
+  await Promise.all(names.map(removeFile));
 }

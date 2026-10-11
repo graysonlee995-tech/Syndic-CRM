@@ -8,6 +8,12 @@ import type { AuditEntry } from '../types';
 
 const PAGE_SIZE = 50;
 
+const ENTITY_LINKS: Record<string, { path: string; label: string }> = {
+  client: { path: '/travellers', label: 'traveller' },
+  company: { path: '/companies', label: 'company' },
+  trip: { path: '/trips', label: 'trip' },
+};
+
 export function AuditPage() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useQuery({
@@ -44,9 +50,9 @@ export function AuditPage() {
                     <Table.Td>{e.user_name ?? '-'}</Table.Td>
                     <Table.Td>{e.action.replace(/_/g, ' ')}</Table.Td>
                     <Table.Td>
-                      {e.entity === 'client' && e.entity_id ? (
-                        <Anchor component={Link} to={`/clients/${e.entity_id}`}>
-                          client #{e.entity_id}
+                      {e.entity && e.entity_id && ENTITY_LINKS[e.entity] ? (
+                        <Anchor component={Link} to={`${ENTITY_LINKS[e.entity].path}/${e.entity_id}`}>
+                          {ENTITY_LINKS[e.entity].label} #{e.entity_id}
                         </Anchor>
                       ) : e.entity ? (
                         `${e.entity}${e.entity_id ? ` #${e.entity_id}` : ''}`

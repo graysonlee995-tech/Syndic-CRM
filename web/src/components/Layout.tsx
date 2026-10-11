@@ -1,12 +1,15 @@
 import { AppShell, Burger, Group, Menu, NavLink, Text, UnstyledButton, Avatar, Divider } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
+  IconBuilding,
   IconChevronDown,
   IconFileDescription,
   IconGauge,
   IconLogout,
   IconPlane,
+  IconPlaneDeparture,
   IconSettings,
+  IconTrash,
   IconUserCircle,
   IconUsers,
   IconUsersGroup,
@@ -14,16 +17,22 @@ import {
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { api, queryClient } from '../api';
 import type { User } from '../types';
+import { ErrorBoundary } from './ErrorBoundary';
 
+/** The three primary modules, in this order. */
 const MAIN_LINKS = [
-  { to: '/', label: 'Dashboard', icon: IconGauge },
-  { to: '/clients', label: 'Clients', icon: IconUsersGroup },
+  { to: '/trips', label: 'Trips', icon: IconPlaneDeparture },
+  { to: '/companies', label: 'Companies', icon: IconBuilding },
+  { to: '/travellers', label: 'Travellers', icon: IconUsersGroup },
 ];
 
+const OTHER_LINKS = [{ to: '/', label: 'Dashboard', icon: IconGauge }];
+
 const ADMIN_LINKS = [
+  { to: '/trash', label: 'Trash', icon: IconTrash },
+  { to: '/audit', label: 'Audit log', icon: IconFileDescription },
   { to: '/employees', label: 'Employees', icon: IconUsers },
   { to: '/settings', label: 'Alert settings', icon: IconSettings },
-  { to: '/audit', label: 'Audit log', icon: IconFileDescription },
 ];
 
 export function Layout({ user }: { user: User }) {
@@ -56,7 +65,7 @@ export function Layout({ user }: { user: User }) {
           <Group gap="xs">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" aria-label="Toggle navigation" />
             <IconPlane size={22} color="var(--mantine-color-teal-6)" />
-            <Text fw={700}>Travel CRM</Text>
+            <Text fw={700}>Syndic CRM</Text>
           </Group>
           <Menu position="bottom-end" width={200}>
             <Menu.Target>
@@ -87,6 +96,8 @@ export function Layout({ user }: { user: User }) {
 
       <AppShell.Navbar p="sm">
         {MAIN_LINKS.map(renderLink)}
+        <Divider my="sm" />
+        {OTHER_LINKS.map(renderLink)}
         {user.role === 'admin' && (
           <>
             <Divider my="sm" label="Admin" labelPosition="left" />
@@ -96,7 +107,9 @@ export function Layout({ user }: { user: User }) {
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <Outlet />
+        <ErrorBoundary key={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </AppShell.Main>
     </AppShell>
   );

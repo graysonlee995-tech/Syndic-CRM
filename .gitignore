@@ -4,3 +4,5 @@ data/
 backups/
 .env
 *.log
+.idea/
+.claude/settings.local.json

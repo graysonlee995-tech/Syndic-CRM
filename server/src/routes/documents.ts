@@ -30,15 +30,15 @@ documentsRouter.get('/:id/file', async (req, res) => {
   const doc = await getDocument(id);
   if (!doc?.file_name) throw new HttpError(404, 'No file uploaded for this document');
   const download = req.query.download === '1';
-  const data = await readFile(doc.file_name);
   await audit(currentUser(req), download ? 'file_downloaded' : 'file_viewed', 'document', id);
+  const body = await readFile(doc.file_name);
   const name = doc.original_name || `document-${id}`;
   res.set({
     'Content-Type': doc.mime_type ?? 'application/octet-stream',
     'Content-Disposition': contentDisposition(download ? 'attachment' : 'inline', name),
     'Cache-Control': 'private, no-store',
   });
-  res.send(data);
+  res.send(body);
 });
 
 documentsRouter.delete('/:id', requireRole('admin'), async (req, res) => {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { config } from '../config.js';
 import { clientsWithBirthdays, countClients, countDocuments, documentsExpiringBy } from '../db/repo.js';
+import { countUpcomingTrips } from '../db/trips.js';
 import { upcomingBirthdays } from '../jobs/birthdays.js';
 import { addDays, daysBetween, todayInTz } from '../lib/dates.js';
 
@@ -14,7 +15,11 @@ dashboardRouter.get('/', async (_req, res) => {
   }));
   res.json({
     today,
-    totals: { clients: await countClients(), documents: await countDocuments() },
+    totals: {
+      clients: await countClients(),
+      documents: await countDocuments(),
+      upcomingTrips: await countUpcomingTrips(today),
+    },
     counts: {
       expired: documents.filter((d) => d.days_left < 0).length,
       within7: documents.filter((d) => d.days_left >= 0 && d.days_left <= 7).length,

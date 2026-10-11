@@ -38,9 +38,9 @@ adminRouter.post('/settings/test-email', async (req, res) => {
   const user = currentUser(req);
   await sendMail({
     to: [user.email],
-    subject: 'Travel CRM test email',
-    text: 'This is a test email from the Travel CRM. Expiry alerts will be delivered the same way.',
-    html: '<p>This is a test email from the Travel CRM. Expiry alerts will be delivered the same way.</p>',
+    subject: 'Syndic CRM test email',
+    text: 'This is a test email from Syndic CRM. Expiry alerts will be delivered the same way.',
+    html: '<p>This is a test email from Syndic CRM. Expiry alerts will be delivered the same way.</p>',
   });
   res.json({
     message: mailConfigured

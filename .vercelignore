@@ -1,0 +1,7 @@
+# Never upload secrets or local data when deploying with the Vercel CLI.
+.env
+data/
+backups/
+node_modules/
+**/dist/
+.idea/

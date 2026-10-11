@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler } from 'express';
 import multer from 'multer';
 import { ZodError } from 'zod';
+import { config } from '../config.js';
 
 export class HttpError extends Error {
   constructor(
@@ -26,7 +27,10 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(400).json({ error: field ? `${field}: ${issue.message}` : issue.message });
   } else if (err instanceof multer.MulterError) {
     const tooBig = err.code === 'LIMIT_FILE_SIZE';
-    res.status(tooBig ? 413 : 400).json({ error: tooBig ? 'File is larger than 4 MB' : err.message });
+    res.status(tooBig ? 413 : 400).json({ error: tooBig ? `File is larger than ${config.maxUploadMb} MB` : err.message });
+  } else if ((err as { code?: string }).code === '23505') {
+    // Postgres unique_violation
+    res.status(409).json({ error: 'This record already exists' });
   } else {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong on the server' });

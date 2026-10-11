@@ -9,6 +9,7 @@ import '@mantine/notifications/styles.css';
 import '@mantine/dropzone/styles.css';
 import { queryClient } from './api';
 import { App } from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const theme = createTheme({
   primaryColor: 'teal',
@@ -22,7 +23,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <Notifications position="top-right" />
       <QueryClientProvider client={queryClient}>
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <App />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </BrowserRouter>
       </QueryClientProvider>
     </MantineProvider>

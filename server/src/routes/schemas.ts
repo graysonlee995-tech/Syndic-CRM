@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DOCUMENT_TYPES } from '../db/repo.js';
+import { TICKET_RESOLUTIONS, TICKET_STATUSES, TRIP_STATUSES, TRIP_TYPES } from '../db/trips.js';
 import { isIsoDate } from '../lib/dates.js';
 
 /** Optional text: trims, and turns empty strings into null. */
@@ -18,9 +19,32 @@ export const optDate = z
   .transform((v) => v || null)
   .refine((v) => v === null || isIsoDate(v), 'must be a valid date (YYYY-MM-DD)');
 
+/** Local date and time from <input type="datetime-local">, e.g. 2026-10-09T14:30. */
+export const optDateTime = z
+  .string()
+  .trim()
+  .nullish()
+  .transform((v) => (v ? v.slice(0, 16) : null))
+  .refine((v) => v === null || (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) && isIsoDate(v.slice(0, 10))), 'must be a valid date and time');
+
+/** Optional id: accepts a number, a numeric string or empty. */
+export const optId = z
+  .union([z.number(), z.string()])
+  .nullish()
+  .transform((v) => (v === '' || v === null || v === undefined ? null : Number(v)))
+  .refine((v) => v === null || (Number.isInteger(v) && v > 0), 'must be a valid id');
+
+export const idList = z.array(z.coerce.number().int().positive()).max(500).default([]).transform((a) => [...new Set(a)]);
+
+export const sortSchema = z.object({
+  sort: z.string().max(30).optional(),
+  dir: z.enum(['asc', 'desc']).default('asc'),
+});
+
 export const clientSchema = z.object({
   first_name: z.string().trim().min(1, 'is required').max(100),
   last_name: z.string().trim().min(1, 'is required').max(100),
+  company_id: optId,
   date_of_birth: optDate,
   gender: optText(20),
   nationality: optText(80),
@@ -29,7 +53,113 @@ export const clientSchema = z.object({
   address_line: optText(300),
   city: optText(100),
   country: optText(100),
+  seat_preference: optText(50),
+  meal_preference: optText(100),
+  cabin_preference: optText(50),
+  special_requirements: optText(2000),
   notes: optText(5000),
+});
+
+export const loyaltySchema = z.object({
+  airline: z.string().trim().min(1, 'is required').max(100),
+  programme: optText(100),
+  member_number: z.string().trim().min(1, 'is required').max(100),
+  tier: optText(50),
+});
+
+export const companySchema = z.object({
+  name: z.string().trim().min(1, 'is required').max(200),
+  primary_contact: optText(200),
+  phone: optText(50),
+  email: optText(200),
+  address_line: optText(300),
+  city: optText(100),
+  country: optText(100),
+  notes: optText(5000),
+});
+
+export const destinationSchema = z.object({
+  city: z.string().trim().min(1, 'is required').max(100),
+  country: optText(100),
+  arrival_date: optDate,
+  departure_date: optDate,
+  notes: optText(1000),
+});
+
+export const tripSchema = z
+  .object({
+    name: z.string().trim().min(1, 'is required').max(200),
+    company_id: optId,
+    origin: optText(100),
+    departure_date: z.string().trim().refine(isIsoDate, 'must be a valid date (YYYY-MM-DD)'),
+    return_date: optDate,
+    trip_type: z.enum(TRIP_TYPES).default('business'),
+    status: z.enum(TRIP_STATUSES).default('planned'),
+    notes: optText(5000),
+    traveller_ids: idList,
+    destinations: z.array(destinationSchema).max(50).default([]),
+  })
+  .refine((t) => !t.return_date || t.return_date >= t.departure_date, {
+    message: 'must be on or after the departure date',
+    path: ['return_date'],
+  });
+
+/** Field validation per booking kind; keys must match BOOKINGS in db/trips.ts. */
+export const bookingSchemas = {
+  flights: z.object({
+    airline: optText(100),
+    flight_number: optText(20),
+    from_airport: z.string().trim().min(1, 'is required').max(100),
+    to_airport: z.string().trim().min(1, 'is required').max(100),
+    departs_at: optDateTime,
+    arrives_at: optDateTime,
+    cabin_class: optText(50),
+    booking_reference: optText(50),
+    notes: optText(2000),
+  }),
+  hotels: z.object({
+    name: z.string().trim().min(1, 'is required').max(200),
+    city: optText(100),
+    address: optText(300),
+    check_in: optDate,
+    check_out: optDate,
+    room_type: optText(100),
+    confirmation_number: optText(100),
+    notes: optText(2000),
+  }),
+  cars: z.object({
+    provider: z.string().trim().min(1, 'is required').max(100),
+    car_type: optText(100),
+    pickup_location: optText(200),
+    pickup_at: optDateTime,
+    dropoff_location: optText(200),
+    dropoff_at: optDateTime,
+    confirmation_number: optText(100),
+    notes: optText(2000),
+  }),
+  cruises: z.object({
+    cruise_line: z.string().trim().min(1, 'is required').max(100),
+    ship: optText(100),
+    embark_port: optText(100),
+    embark_date: optDate,
+    disembark_port: optText(100),
+    disembark_date: optDate,
+    cabin: optText(50),
+    confirmation_number: optText(100),
+    notes: optText(2000),
+  }),
+} as const;
+
+export const ticketSchema = z.object({
+  client_id: z.coerce.number().int().positive(),
+  ticket_number: optText(50),
+  status: z.enum(TICKET_STATUSES).default('issued'),
+  notes: optText(2000),
+});
+
+export const resolutionSchema = z.object({
+  resolution: z.enum(TICKET_RESOLUTIONS),
+  notes: optText(2000),
 });
 
 export const documentSchema = z.object({

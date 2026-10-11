@@ -1,26 +1,30 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { config } from '../config.js';
-import { runDailyJobs } from '../jobs/scheduler.js';
+import { purgeIdleSessions } from '../db/repo.js';
+import { runBirthdayReminders } from '../jobs/birthdays.js';
+import { runExpiryAlerts } from '../jobs/expiryAlerts.js';
+import { HttpError } from '../lib/http.js';
 
 /**
- * Daily job trigger. Vercel Cron (vercel.json) calls GET /api/cron/daily and sends
- * "Authorization: Bearer <CRON_SECRET>" automatically when CRON_SECRET is set.
+ * Daily jobs for hosts without an always-running server (Vercel). Vercel Cron
+ * calls GET /api/cron/daily with "Authorization: Bearer $CRON_SECRET"; see
+ * vercel.json. Alerts are de-duplicated, so an extra call never re-sends one.
  */
 export const cronRouter = Router();
 
-function secretMatches(header: string | undefined): boolean {
-  if (!config.cronSecret || !header?.startsWith('Bearer ')) return false;
-  const given = Buffer.from(header.slice(7));
-  const expected = Buffer.from(config.cronSecret);
+function authorized(header: string | undefined): boolean {
+  if (!config.cronSecret || !header) return false;
+  const expected = Buffer.from(`Bearer ${config.cronSecret}`);
+  const given = Buffer.from(header);
   return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
-cronRouter.all('/daily', async (req, res) => {
-  if (!secretMatches(req.get('authorization'))) {
-    res.status(401).json({ error: 'Invalid cron secret' });
-    return;
-  }
-  const result = await runDailyJobs('scheduled run');
-  res.json(result);
+cronRouter.get('/daily', async (req, res) => {
+  if (!authorized(req.get('authorization'))) throw new HttpError(401, 'Unauthorized');
+  const expiry = await runExpiryAlerts();
+  const birthdays = await runBirthdayReminders();
+  await purgeIdleSessions(config.sessionIdleHours);
+  console.log(`[cron] ${expiry.message}. ${birthdays.message}.`);
+  res.json({ expiry: expiry.message, birthdays: birthdays.message });
 });

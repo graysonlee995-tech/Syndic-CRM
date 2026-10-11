@@ -1,4 +1,4 @@
-import { Badge } from '@mantine/core';
+import { Badge, Group } from '@mantine/core';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -55,6 +55,44 @@ export function ExpiryBadge({ date, daysLeft }: { date: string | null; daysLeft?
     </Badge>
   );
 }
+
+/** 2026-10-09T14:30 (local, as typed) -> 9 Oct 2026, 14:30. Plain dates pass through formatDate. */
+export function formatDateTime(value: unknown): string {
+  if (typeof value !== 'string' || !value) return '-';
+  const [date, time] = value.split('T');
+  return time ? `${formatDate(date)}, ${time.slice(0, 5)}` : formatDate(date);
+}
+
+/** Company ids shown as C-0001, traveller ids as T-0001. */
+export const companyCode = (id: number) => `C-${String(id).padStart(4, '0')}`;
+export const travellerCode = (id: number) => `T-${String(id).padStart(4, '0')}`;
+
+const PHASES: Record<string, { label: string; color: string }> = {
+  upcoming: { label: 'Upcoming', color: 'blue' },
+  ongoing: { label: 'Ongoing', color: 'teal' },
+  past: { label: 'Completed', color: 'gray' },
+  cancelled: { label: 'Cancelled', color: 'red' },
+};
+
+/** Where the trip is in time (or cancelled), plus whether it is still only planned. */
+export function TripStatusBadge({ phase, status }: { phase: string; status: string }) {
+  const p = PHASES[phase] ?? PHASES.upcoming;
+  return (
+    <Group gap={4} wrap="nowrap">
+      <Badge color={p.color} variant="light" style={{ minWidth: 'max-content' }}>
+        {p.label}
+      </Badge>
+      {status === 'planned' && phase !== 'cancelled' && (
+        <Badge color="yellow" variant="outline" style={{ minWidth: 'max-content' }}>
+          Planned
+        </Badge>
+      )}
+    </Group>
+  );
+}
+
+export const labelOf = (list: readonly { value: string; label: string }[], value: string | null | undefined) =>
+  list.find((x) => x.value === value)?.label ?? value ?? '-';
 
 export function formatSize(bytes: number | null): string {
   if (!bytes) return '';

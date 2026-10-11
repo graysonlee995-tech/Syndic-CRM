@@ -24,35 +24,48 @@ function loadFileKey(): Buffer {
   return key;
 }
 
-const isProd = process.env.NODE_ENV === 'production';
+/** Running as a Vercel serverless function (Vercel sets VERCEL=1). */
+const onVercel = Boolean(process.env.VERCEL);
+const isProd = process.env.NODE_ENV === 'production' || onVercel;
+
+// Vercel's default production address, used when APP_URL is not set.
+const vercelUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null;
+
+// Cloud hosts (Vercel, Render) have no lasting disk, so in
+// production the database and files must live in Supabase. A server with its
+// own persistent disk (the Docker VPS setup) can opt out with LOCAL_STORAGE=true.
+if (isProd && process.env.LOCAL_STORAGE !== 'true') {
+  // Files go to Supabase Storage when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set,
+  // otherwise (still encrypted) into the database, so DATABASE_URL is the only requirement.
+  const missing = ['DATABASE_URL'].filter((k) => !process.env[k]);
+  if (missing.length) {
+    throw new Error(
+      `Missing ${missing.join(', ')}. In production the CRM stores data in Supabase (see .env.example), ` +
+        'or set LOCAL_STORAGE=true on a server with a persistent disk.',
+    );
+  }
+}
 
 export const config = {
   isProd,
-  // Render and most hosts set PORT; SERVER_PORT is kept for Docker.
-  port: Number(process.env.PORT || env('SERVER_PORT', '3000')),
-  appUrl: env('APP_URL', 'http://localhost:5173').replace(/\/$/, ''),
-  dataDir: path.resolve(rootDir, env('DATA_DIR', './data')),
-  /** Postgres connection string (Supabase: Project Settings > Database > Session pooler). */
-  databaseUrl: env('DATABASE_URL', 'postgres://postgres:postgres@localhost:5432/crm'),
-  /** Supabase project URL and service role key. Without them files are stored in DATA_DIR/files. */
-  supabaseUrl: process.env.SUPABASE_URL ?? '',
-  supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
-  storageBucket: env('SUPABASE_BUCKET', 'documents'),
-  /**
-   * Where encrypted scans are kept: "db" (a table in the Supabase database, the default),
-   * "supabase" (a private Storage bucket, needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
-   * or "disk" (DATA_DIR/files, for local development and tests).
-   */
-  fileStorage: env(
-    'FILE_STORAGE',
-    process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? 'supabase' : 'db',
-  ) as 'db' | 'supabase' | 'disk',
-  /** Shared secret for POST /api/cron/daily (called by Supabase pg_cron). Empty disables the endpoint. */
+  onVercel,
+  port: Number(env('SERVER_PORT', '3000')),
+  appUrl: env('APP_URL', vercelUrl ?? 'http://localhost:5173').replace(/\/$/, ''),
+  /** Vercel rejects requests over 4.5 MB, so uploads are capped lower there. */
+  maxUploadMb: Number(env('MAX_UPLOAD_MB', onVercel ? '4' : '15')),
+  /** Vercel Cron sends this as a bearer token to /api/cron/daily. */
   cronSecret: process.env.CRON_SECRET ?? '',
-  /** Set to false on hosts that sleep (Render free); the daily job then comes from Supabase pg_cron. */
-  inAppScheduler: env('IN_APP_SCHEDULER', 'true') === 'true',
+  dataDir: path.resolve(rootDir, env('DATA_DIR', './data')),
   timezone: env('APP_TIMEZONE', 'Asia/Karachi'),
   fileKey: loadFileKey(),
+  /** Supabase Postgres connection string. Empty: embedded Postgres in DATA_DIR/pgdata. */
+  databaseUrl: process.env.DATABASE_URL ?? '',
+  /** Supabase Storage for encrypted uploads. Empty: files are kept in DATA_DIR/files. */
+  supabase: {
+    url: (process.env.SUPABASE_URL ?? '').replace(/\/$/, ''),
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
+    bucket: env('SUPABASE_BUCKET', 'crm-files'),
+  },
   sessionIdleHours: Number(env('SESSION_IDLE_HOURS', '8')),
   smtp: {
     host: process.env.SMTP_HOST ?? '',
@@ -60,7 +73,7 @@ export const config = {
     secure: env('SMTP_SECURE', 'false') === 'true',
     user: process.env.SMTP_USER ?? '',
     pass: process.env.SMTP_PASS ?? '',
-    from: env('MAIL_FROM', 'Travel CRM <no-reply@localhost>'),
+    from: env('MAIL_FROM', 'Syndic CRM <no-reply@localhost>'),
   },
   webDist: path.join(rootDir, 'web', 'dist'),
 };

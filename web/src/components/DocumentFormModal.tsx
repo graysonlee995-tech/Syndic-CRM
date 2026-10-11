@@ -3,12 +3,11 @@ import { Button, Group, Modal, Select, SimpleGrid, Stack, Text, TextInput, Texta
 import { Dropzone } from '@mantine/dropzone';
 import { IconFileUpload, IconX } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
-import { api, notifyError, notifySuccess, queryClient } from '../api';
+import { api, notifyError, notifySuccess, queryClient, useAppConfig } from '../api';
 import { formatSize } from '../format';
 import { DOCUMENT_TYPES, type ClientDocument } from '../types';
 
 const ACCEPT = { 'application/pdf': ['.pdf'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'], 'image/webp': ['.webp'] };
-const MAX_BYTES = 4 * 1024 * 1024;
 
 const blank = {
   type: 'passport',
@@ -29,6 +28,7 @@ interface Props {
 export function DocumentFormModal({ clientId, document, opened, onClose }: Props) {
   const [form, setForm] = useState(blank);
   const [file, setFile] = useState<File | null>(null);
+  const { maxUploadMb } = useAppConfig();
 
   useEffect(() => {
     if (!opened) return;
@@ -54,7 +54,7 @@ export function DocumentFormModal({ clientId, document, opened, onClose }: Props
       if (file) data.append('file', file);
       return document
         ? api(`/documents/${document.id}`, { method: 'PUT', form: data })
-        : api(`/clients/${clientId}/documents`, { form: data });
+        : api(`/travellers/${clientId}/documents`, { form: data });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client', String(clientId)] });
@@ -68,8 +68,10 @@ export function DocumentFormModal({ clientId, document, opened, onClose }: Props
 
   const field = (key: keyof typeof blank) => ({
     value: form[key],
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setForm((f) => ({ ...f, [key]: e.currentTarget.value })),
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const { value } = e.currentTarget;
+      setForm((f) => ({ ...f, [key]: value }));
+    },
   });
 
   return (
@@ -104,8 +106,8 @@ export function DocumentFormModal({ clientId, document, opened, onClose }: Props
 
           <Dropzone
             onDrop={(files) => setFile(files[0] ?? null)}
-            onReject={() => notifyError(new Error('Only PDF, JPG, PNG or WEBP files up to 4 MB'))}
-            maxSize={MAX_BYTES}
+            onReject={() => notifyError(new Error(`Only PDF, JPG, PNG or WEBP files up to ${maxUploadMb} MB`))}
+            maxSize={maxUploadMb * 1024 * 1024}
             maxFiles={1}
             multiple={false}
             accept={ACCEPT}
@@ -129,7 +131,7 @@ export function DocumentFormModal({ clientId, document, opened, onClose }: Props
                       : 'Drop a scan here or click to choose a file'}
                 </Text>
                 <Text size="xs" c="dimmed">
-                  PDF, JPG, PNG or WEBP, up to 4 MB
+                  PDF, JPG, PNG or WEBP, up to {maxUploadMb} MB
                 </Text>
               </div>
             </Group>

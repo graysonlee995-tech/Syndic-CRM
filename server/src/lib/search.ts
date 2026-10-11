@@ -1,23 +1,10 @@
 import { isIsoDate } from './dates.js';
 
 export interface ParsedSearch {
-  /** Lower case words; every one must be the start of a word in the client's record. Empty for no text. */
+  /** Words that must all appear in the traveller's search text (lower case, no accents). */
   terms: string[];
   /** A date of birth found in the query (YYYY-MM-DD), if any. */
   dob: string | null;
-}
-
-/**
- * Splits text into lower case, accent free words of letters and digits, the
- * same way for stored records and for search input ("Zoë O'Brien" -> zoe, o, brien).
- */
-export function tokenize(value: string): string[] {
-  return value
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
 }
 
 // Accepts 1985-03-15, 15/03/1985, 15-03-1985 and 15.03.1985 (day first).
@@ -29,10 +16,14 @@ function parseDateToken(token: string): string | null {
   return isIsoDate(iso) ? iso : null;
 }
 
+/** Lower case without accents, so "José" and "jose" match. */
+export function normalize(value: string): string {
+  return value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
 /**
- * Turns free text typed in the search bar into search terms.
- * Every word must match (AND) and each word is treated as a prefix, so
- * "ali kha" finds "Ali Khan". Terms are passed to SQL as parameters only.
+ * Splits text typed in the search bar into words. Every word must match
+ * somewhere (AND) as part of a word, so "ali kha" finds "Ali Khan".
  */
 export function parseSearch(input: string): ParsedSearch {
   let dob: string | null = null;
@@ -45,10 +36,12 @@ export function parseSearch(input: string): ParsedSearch {
       dob = date;
       continue;
     }
-    for (const t of tokenize(raw)) if (!terms.includes(t)) terms.push(t);
+    const cleaned = normalize(raw.replace(/"/g, ''));
+    if (!/[\p{L}\p{N}]/u.test(cleaned)) continue;
+    terms.push(cleaned);
   }
 
-  return { terms, dob };
+  return { terms: terms.slice(0, 10), dob };
 }
 
 /** Letters and digits only, so "AB-123 456" also matches "AB123456". */

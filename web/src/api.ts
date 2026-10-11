@@ -62,6 +62,18 @@ export function useMe() {
   });
 }
 
+export interface AppConfig {
+  maxUploadMb: number;
+  /** False on Vercel, where alerts run from a fixed daily cron instead of the chosen time. */
+  scheduledAlerts: boolean;
+}
+
+/** Server settings the UI depends on, such as the upload size limit. */
+export function useAppConfig(): AppConfig {
+  const { data } = useQuery({ queryKey: ['config'], queryFn: () => api<AppConfig>('/config'), staleTime: Infinity });
+  return data ?? { maxUploadMb: 4, scheduledAlerts: true };
+}
+
 export function notifyError(err: unknown) {
   notifications.show({ color: 'red', title: 'Something went wrong', message: (err as Error).message });
 }

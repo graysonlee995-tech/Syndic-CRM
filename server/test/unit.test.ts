@@ -111,10 +111,10 @@ describe('computeDueBirthdays', () => {
 });
 
 describe('parseSearch', () => {
-  it('splits input into lower case prefix terms', () => {
-    expect(parseSearch('Ali kha').terms).toEqual(['ali', 'kha']);
-    expect(parseSearch('ab" OR x%').terms).toEqual(['ab', 'or', 'x']);
-    expect(parseSearch('Zoë').terms).toEqual(['zoe']);
+  it('splits into lower-case words without accents or quotes', () => {
+    expect(parseSearch('Ali KHA').terms).toEqual(['ali', 'kha']);
+    expect(parseSearch('ab" OR x').terms).toEqual(['ab', 'or', 'x']);
+    expect(parseSearch('José').terms).toEqual(['jose']);
   });
 
   it('extracts a date of birth in several formats', () => {

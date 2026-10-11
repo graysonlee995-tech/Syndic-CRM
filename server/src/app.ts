@@ -12,6 +12,10 @@ import { documentsRouter } from './routes/documents.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { usersRouter } from './routes/users.js';
 import { adminRouter } from './routes/admin.js';
+import { tripsRouter } from './routes/trips.js';
+import { companiesRouter } from './routes/companies.js';
+import { trashRouter } from './routes/trash.js';
+import { activityRouter } from './routes/activity.js';
 import { cronRouter } from './routes/cron.js';
 
 /**
@@ -54,15 +58,25 @@ export function createApp() {
   app.use(cookieParser());
   app.use(sameOriginOnly);
 
+  // For the host's health checks; reveals nothing.
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
   });
   app.use('/api/cron', cronRouter);
   app.use('/api/auth', authRouter);
   app.use('/api', requireAuth);
+  // Settings the browser needs (e.g. the upload size limit, which is lower on Vercel).
+  app.get('/api/config', (_req, res) => {
+    res.json({ maxUploadMb: config.maxUploadMb, scheduledAlerts: !config.onVercel });
+  });
   app.use('/api/dashboard', dashboardRouter);
-  app.use('/api/clients', clientsRouter);
+  app.use('/api/trips', tripsRouter);
+  app.use('/api/companies', companiesRouter);
+  app.use('/api/travellers', clientsRouter);
+  app.use('/api/clients', clientsRouter); // older name, kept for compatibility
   app.use('/api/documents', documentsRouter);
+  app.use('/api/activity', activityRouter);
+  app.use('/api/trash', requireRole('admin'), trashRouter);
   app.use('/api/users', requireRole('admin'), usersRouter);
   app.use('/api/admin', requireRole('admin'), adminRouter);
   app.use('/api', (_req, res) => {

@@ -6,8 +6,8 @@
 import crypto from 'node:crypto';
 import { parseArgs } from 'node:util';
 import bcrypt from 'bcryptjs';
+import { disconnect } from '../db/index.js';
 import { createUser, getUserByEmail, type Role } from '../db/repo.js';
-import { pool } from '../db/index.js';
 import { BCRYPT_ROUNDS, MIN_PASSWORD_LENGTH } from '../routes/auth.js';
 
 const { values } = parseArgs({
@@ -39,4 +39,5 @@ if (!values.password) {
   console.log(`Temporary password: ${password}`);
   console.log('Sign in and change it under "My account".');
 }
-await pool.end();
+
+await disconnect();

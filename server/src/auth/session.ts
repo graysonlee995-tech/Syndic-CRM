@@ -30,7 +30,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
   // Avoid a write on every request; a minute of precision is plenty for idle timeouts.
-  if (Date.now() - Date.parse(session.lastSeenAt.replace(' ', 'T') + 'Z') > 60_000) await touchSession(session.sessionId);
+  if (Date.now() - Date.parse(session.lastSeenAt) > 60_000) await touchSession(session.sessionId);
   req.user = toPublicUser(session.user);
   req.sessionId = session.sessionId;
   next();

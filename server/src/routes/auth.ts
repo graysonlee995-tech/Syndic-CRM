@@ -126,7 +126,7 @@ authRouter.post('/2fa/setup', requireAuth, async (req, res) => {
   const user = currentUser(req);
   const secret = authenticator.generateSecret();
   await updateUser(user.id, { totp_pending_secret: secret });
-  const uri = authenticator.keyuri(user.email, 'Travel CRM', secret);
+  const uri = authenticator.keyuri(user.email, 'Syndic CRM', secret);
   res.json({ secret, qr: await QRCode.toDataURL(uri) });
 });
 

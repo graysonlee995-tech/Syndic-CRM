@@ -36,7 +36,7 @@ export function LoginPage() {
           <Stack>
             <Group gap="xs">
               <IconPlane size={28} color="var(--mantine-color-teal-6)" />
-              <Title order={2}>Travel CRM</Title>
+              <Title order={2}>Syndic CRM</Title>
             </Group>
             <Text c="dimmed" size="sm">
               Employees only. Sign in with the login you were given by your administrator.

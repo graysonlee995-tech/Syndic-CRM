@@ -52,7 +52,7 @@ function buildEmail(due: UpcomingBirthday<BirthdayClient>[]) {
     date: c.birthday.date,
     age: c.birthday.age,
     contact: [c.phone, c.email].filter(Boolean).join(', ') || '-',
-    link: `${config.appUrl}/clients/${c.id}`,
+    link: `${config.appUrl}/travellers/${c.id}`,
   }));
 
   const text = [
@@ -60,7 +60,7 @@ function buildEmail(due: UpcomingBirthday<BirthdayClient>[]) {
     '',
     ...lines.map((l) => `- ${l.name}: ${l.when} (${l.date}, turning ${l.age}). Contact: ${l.contact}\n  ${l.link}`),
     '',
-    'You receive this email because you are set up as an alert recipient in the Travel CRM.',
+    'You receive this email because you are set up as an alert recipient in Syndic CRM.',
   ].join('\n');
 
   const cell = 'padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:left;';
@@ -84,7 +84,7 @@ function buildEmail(due: UpcomingBirthday<BirthdayClient>[]) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p style="color:#6b7280;font-size:12px">You receive this email because you are set up as an alert recipient in the Travel CRM.</p>
+    <p style="color:#6b7280;font-size:12px">You receive this email because you are set up as an alert recipient in Syndic CRM.</p>
   </div>`;
   return { subject, text, html };
 }
@@ -100,12 +100,7 @@ export async function runBirthdayReminders(now = new Date()): Promise<BirthdayRu
   if (!birthdayReminders) return { due: 0, sent: false, message: 'Birthday reminders are turned off' };
 
   const today = todayInTz(config.timezone, now);
-  const due = computeDueBirthdays(
-    await clientsWithBirthdays(),
-    birthdayDaysAhead,
-    await sentBirthdayKeys(),
-    today,
-  );
+  const due = computeDueBirthdays(await clientsWithBirthdays(), birthdayDaysAhead, await sentBirthdayKeys(), today);
   if (!due.length) return { due: 0, sent: false, message: 'No new birthday reminders' };
 
   const recipients = await alertRecipients();

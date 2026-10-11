@@ -1,10 +1,10 @@
 import multer from 'multer';
+import { config } from '../config.js';
 import type { StoredFile } from '../db/repo.js';
 import { detectMime, saveFile } from '../lib/files.js';
 import { HttpError } from '../lib/http.js';
 
-// Vercel functions accept at most 4.5 MB per request (and per response), so scans are capped at 4 MB.
-export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = config.maxUploadMb * 1024 * 1024;
 
 export const upload = multer({
   storage: multer.memoryStorage(),

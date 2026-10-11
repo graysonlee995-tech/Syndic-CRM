@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Anchor, Badge, Card, Group, Loader, SegmentedControl, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
-import { IconAlertTriangle, IconCake, IconClockHour4, IconFiles, IconUsersGroup } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCake, IconClockHour4, IconFiles, IconPlaneDeparture, IconUsersGroup } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
@@ -9,7 +9,7 @@ import { documentLabel, type ExpiringDocument, type UpcomingBirthday } from '../
 
 interface Dashboard {
   today: string;
-  totals: { clients: number; documents: number };
+  totals: { clients: number; documents: number; upcomingTrips: number };
   counts: { expired: number; within7: number; within30: number; within90: number };
   documents: ExpiringDocument[];
   birthdays: UpcomingBirthday[];
@@ -27,14 +27,14 @@ function BirthdaysCard({ birthdays }: { birthdays: UpcomingBirthday[] }) {
       </Group>
       {birthdays.length === 0 ? (
         <Text c="dimmed" size="sm">
-          No client birthdays in the next 30 days.
+          No traveller birthdays in the next 30 days.
         </Text>
       ) : (
         <Table.ScrollContainer minWidth={500}>
           <Table highlightOnHover>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Client</Table.Th>
+                <Table.Th>Traveller</Table.Th>
                 <Table.Th>Birthday</Table.Th>
                 <Table.Th>Turns</Table.Th>
                 <Table.Th>Phone</Table.Th>
@@ -45,7 +45,7 @@ function BirthdaysCard({ birthdays }: { birthdays: UpcomingBirthday[] }) {
               {birthdays.map((b) => (
                 <Table.Tr key={b.id}>
                   <Table.Td>
-                    <Anchor component={Link} to={`/clients/${b.id}`}>
+                    <Anchor component={Link} to={`/travellers/${b.id}`}>
                       {b.first_name} {b.last_name}
                     </Anchor>
                   </Table.Td>
@@ -107,8 +107,9 @@ export function DashboardPage() {
   return (
     <Stack>
       <Title order={2}>Dashboard</Title>
-      <SimpleGrid cols={{ base: 2, md: 3, lg: 6 }}>
-        <Stat label="Clients" value={data.totals.clients} color="teal" icon={IconUsersGroup} />
+      <SimpleGrid cols={{ base: 2, md: 4, lg: 7 }}>
+        <Stat label="Upcoming trips" value={data.totals.upcomingTrips} color="blue" icon={IconPlaneDeparture} />
+        <Stat label="Travellers" value={data.totals.clients} color="teal" icon={IconUsersGroup} />
         <Stat label="Documents" value={data.totals.documents} color="teal" icon={IconFiles} />
         <Stat label="Expired" value={data.counts.expired} color="red" icon={IconAlertTriangle} />
         <Stat label="Next 7 days" value={data.counts.within7} color="red" icon={IconClockHour4} />
@@ -141,7 +142,7 @@ export function DashboardPage() {
             <Table highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Client</Table.Th>
+                  <Table.Th>Traveller</Table.Th>
                   <Table.Th>Document</Table.Th>
                   <Table.Th>Number</Table.Th>
                   <Table.Th>Expiry date</Table.Th>
@@ -152,7 +153,7 @@ export function DashboardPage() {
                 {rows.map((d) => (
                   <Table.Tr key={d.id}>
                     <Table.Td>
-                      <Anchor component={Link} to={`/clients/${d.client_id}`}>
+                      <Anchor component={Link} to={`/travellers/${d.client_id}`}>
                         {d.first_name} {d.last_name}
                       </Anchor>
                     </Table.Td>

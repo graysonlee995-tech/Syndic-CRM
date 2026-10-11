@@ -73,7 +73,7 @@ function buildDigest(due: DueAlert<ExpiringDocument>[]) {
       expiry: doc.expiry_date,
       status: describeDaysLeft(daysLeft),
       urgent: daysLeft <= 7,
-      link: `${config.appUrl}/clients/${doc.client_id}`,
+      link: `${config.appUrl}/travellers/${doc.client_id}`,
     };
   });
 
@@ -82,7 +82,7 @@ function buildDigest(due: DueAlert<ExpiringDocument>[]) {
     '',
     ...lines.map((l) => `- ${l.name}: ${l.type} ${l.number}, expiry ${l.expiry} (${l.status})\n  ${l.link}`),
     '',
-    'You receive this email because you are set up as an alert recipient in the Travel CRM.',
+    'You receive this email because you are set up as an alert recipient in Syndic CRM.',
   ].join('\n');
 
   const cell = 'padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:left;';
@@ -106,7 +106,7 @@ function buildDigest(due: DueAlert<ExpiringDocument>[]) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p style="color:#6b7280;font-size:12px">You receive this email because you are set up as an alert recipient in the Travel CRM.</p>
+    <p style="color:#6b7280;font-size:12px">You receive this email because you are set up as an alert recipient in Syndic CRM.</p>
   </div>`;
 
   return { subject, text, html };
