@@ -11,6 +11,16 @@ import { connect } from './db/index.js';
 const app = createApp();
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  await connect();
+  try {
+    await connect();
+  } catch (err) {
+    // Without this the function crashes and Vercel only shows FUNCTION_INVOCATION_FAILED.
+    const e = err as { code?: string; message?: string };
+    console.error('[db] could not connect:', err);
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: 'The database is not reachable', code: e.code ?? null, reason: String(e.message ?? '').slice(0, 120) }));
+    return;
+  }
   app(req as Parameters<typeof app>[0], res as Parameters<typeof app>[1]);
 }
