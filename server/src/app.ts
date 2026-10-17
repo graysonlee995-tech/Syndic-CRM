@@ -17,6 +17,8 @@ import { companiesRouter } from './routes/companies.js';
 import { trashRouter } from './routes/trash.js';
 import { activityRouter } from './routes/activity.js';
 import { cronRouter } from './routes/cron.js';
+import { assistantRouter } from './routes/assistant.js';
+import { keyStatus } from './assistant/key.js';
 
 /**
  * Rejects cross-site state-changing requests. Together with the SameSite=strict
@@ -54,6 +56,8 @@ export function createApp() {
       },
     }),
   );
+  // Assistant conversations carry their history, so they may be larger than other requests.
+  app.use('/api/assistant', express.json({ limit: '4mb' }));
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
   app.use(sameOriginOnly);
@@ -66,8 +70,8 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api', requireAuth);
   // Settings the browser needs (e.g. the upload size limit, which is lower on Vercel).
-  app.get('/api/config', (_req, res) => {
-    res.json({ maxUploadMb: config.maxUploadMb, scheduledAlerts: !config.onVercel });
+  app.get('/api/config', async (_req, res) => {
+    res.json({ maxUploadMb: config.maxUploadMb, scheduledAlerts: !config.onVercel, assistant: (await keyStatus()).configured });
   });
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/trips', tripsRouter);
@@ -76,6 +80,7 @@ export function createApp() {
   app.use('/api/clients', clientsRouter); // older name, kept for compatibility
   app.use('/api/documents', documentsRouter);
   app.use('/api/activity', activityRouter);
+  app.use('/api/assistant', assistantRouter);
   app.use('/api/trash', requireRole('admin'), trashRouter);
   app.use('/api/users', requireRole('admin'), usersRouter);
   app.use('/api/admin', requireRole('admin'), adminRouter);

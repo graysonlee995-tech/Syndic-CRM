@@ -15,6 +15,7 @@
     "copy-to-supabase": "tsx src/scripts/copy-local-to-supabase.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@electric-sql/pglite": "^0.3.16",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",

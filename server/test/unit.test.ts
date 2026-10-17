@@ -5,6 +5,7 @@ import { computeDueBirthdays } from '../src/jobs/birthdays.js';
 import { addDays, daysBetween, isIsoDate, nextBirthday, todayInTz } from '../src/lib/dates.js';
 import { decrypt, detectMime, encrypt } from '../src/lib/files.js';
 import { parseSearch } from '../src/lib/search.js';
+import { tripDatesFrom, type ItineraryInput } from '../src/db/trips.js';
 
 const THRESHOLDS = [90, 30, 7, 0];
 
@@ -107,6 +108,37 @@ describe('computeDueBirthdays', () => {
   it('reminds once per client per year', () => {
     expect(computeDueBirthdays(clients, 7, new Set(['1:2026', '2:2026']), '2026-03-10')).toEqual([]);
     expect(computeDueBirthdays(clients, 7, new Set(['1:2025']), '2026-03-10').map((c) => c.id)).toEqual([2, 1]);
+  });
+});
+
+describe('tripDatesFrom', () => {
+  const item = (o: Partial<ItineraryInput>): ItineraryInput => ({
+    type: 'flight',
+    origin: null,
+    destination: null,
+    departure_date: '2026-11-20',
+    departure_time: null,
+    arrival_date: null,
+    arrival_time: null,
+    confirmation_number: null,
+    gds_pnr: null,
+    ...o,
+  });
+
+  it('starts at the first departure, not a same-day hotel without a time', () => {
+    const dates = tripDatesFrom([
+      item({ origin: 'KHI', departure_time: '09:30', arrival_date: '2026-11-20' }),
+      item({ type: 'hotel', origin: 'Atlantis', arrival_date: '2026-11-23' }),
+    ]);
+    expect(dates).toEqual({ origin: 'KHI', departure_date: '2026-11-20', return_date: '2026-11-23' });
+  });
+
+  it('uses times when both items have one, and has no return date for a same-day trip', () => {
+    const dates = tripDatesFrom([
+      item({ origin: 'LHE', departure_time: '18:00' }),
+      item({ origin: 'KHI', departure_time: '07:00', arrival_date: '2026-11-20' }),
+    ]);
+    expect(dates).toEqual({ origin: 'KHI', departure_date: '2026-11-20', return_date: null });
   });
 });
 

@@ -699,10 +699,31 @@ const DEFAULT_SETTINGS: Settings = {
   birthdayDaysAhead: 7,
 };
 
+/** Settings rows holding encrypted secrets; never part of getSettings(). */
+const SECRET_PREFIX = 'secret:';
+
 export async function getSettings(): Promise<Settings> {
-  const rows = await query<{ key: string; value: string }>('SELECT key, value FROM settings');
+  const rows = await query<{ key: string; value: string }>(
+    `SELECT key, value FROM settings WHERE key NOT LIKE '${SECRET_PREFIX}%'`,
+  );
   const stored = Object.fromEntries(rows.map((r) => [r.key, JSON.parse(r.value)]));
   return { ...DEFAULT_SETTINGS, ...stored };
+}
+
+/** An encrypted secret (see lib/secrets.ts), or null when not set. */
+export async function getSecret(name: string): Promise<string | null> {
+  return (await value<string | undefined>('SELECT value FROM settings WHERE key = ?', [SECRET_PREFIX + name])) ?? null;
+}
+
+export async function setSecret(name: string, encrypted: string | null): Promise<void> {
+  if (encrypted === null) {
+    await run('DELETE FROM settings WHERE key = ?', [SECRET_PREFIX + name]);
+    return;
+  }
+  await run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', [
+    SECRET_PREFIX + name,
+    encrypted,
+  ]);
 }
 
 export function saveSettings(settings: Settings): Promise<void> {

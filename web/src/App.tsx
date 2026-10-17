@@ -19,6 +19,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { AuditPage } from './pages/AuditPage';
 import { AccountPage } from './pages/AccountPage';
 import { TrashPage } from './pages/TrashPage';
+import { AssistantPage } from './pages/AssistantPage';
 
 /** Old /clients links (bookmarks, earlier alert emails) now open the traveller pages. */
 function ClientRedirect({ suffix = '' }: { suffix?: string }) {
@@ -45,6 +46,7 @@ export function App() {
       <Route path="trips/:id/agenda" element={<TripAgendaPage />} />
       <Route element={<Layout user={user} />}>
         <Route index element={<DashboardPage />} />
+        <Route path="assistant" element={<AssistantPage />} />
         <Route path="trips" element={<TripsPage />} />
         <Route path="trips/new" element={<TripFormPage />} />
         <Route path="trips/:id" element={<TripDetailPage />} />

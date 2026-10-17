@@ -6,19 +6,33 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { BOOKING_DEFS, BOOKING_KINDS } from '../components/bookings';
 import { formatDate, formatDateTime, labelOf } from '../format';
-import { TICKET_STATUSES, TRIP_TYPES, type Booking, type Flight, type TripDetail } from '../types';
+import { ITINERARY_TYPES, TICKET_STATUSES, TRIP_TYPES, type Booking, type Flight, type TripDetail } from '../types';
 
 interface AgendaItem {
-  sortKey: string;
+  /** YYYY-MM-DD, or 9999 when unknown */
+  date: string;
+  /** HH:MM, if known */
+  time: string | null;
   when: string;
   kind: string;
   title: string;
   lines: string[];
 }
 
-/** Every booking as one dated line on the agenda, in time order. */
+/** The itinerary and every booking as dated lines on the agenda, in time order. */
 function agendaItems(data: TripDetail): AgendaItem[] {
-  const items: AgendaItem[] = [];
+  const items: AgendaItem[] = data.itinerary.map((i) => ({
+    date: i.departure_date,
+    time: i.departure_time,
+    when: `${formatDate(i.departure_date)}${i.departure_time ? `, ${i.departure_time}` : ""}`,
+    kind: labelOf(ITINERARY_TYPES, i.type),
+    title: [i.origin, i.destination].filter(Boolean).join(" → ") || labelOf(ITINERARY_TYPES, i.type),
+    lines: [
+      i.arrival_date ? `Arrives ${formatDate(i.arrival_date)}${i.arrival_time ? `, ${i.arrival_time}` : ""}` : "",
+      i.confirmation_number ? `Conf. No.: ${i.confirmation_number}` : "",
+      i.gds_pnr ? `GDS PNR: ${i.gds_pnr}` : "",
+    ].filter(Boolean),
+  }));
   const name = (id: number) => {
     const t = data.travellers.find((x) => x.id === id);
     return t ? `${t.first_name} ${t.last_name}` : '';
@@ -38,7 +52,8 @@ function agendaItems(data: TripDetail): AgendaItem[] {
         }
       }
       items.push({
-        sortKey: typeof from === 'string' && from ? from : '9999',
+        date: typeof from === 'string' && from ? from.slice(0, 10) : '9999',
+        time: typeof from === 'string' && from.length > 10 ? from.slice(11, 16) : null,
         when: formatDateTime(from),
         kind: def.singular,
         title: def.title(b),
@@ -46,7 +61,8 @@ function agendaItems(data: TripDetail): AgendaItem[] {
       });
     }
   }
-  return items.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  // By date; on the same day by time only when both have one, otherwise in the order entered (sort is stable).
+  return items.sort((a, b) => a.date.localeCompare(b.date) || (a.time && b.time ? a.time.localeCompare(b.time) : 0));
 }
 
 const css = `

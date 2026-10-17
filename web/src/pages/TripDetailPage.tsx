@@ -23,6 +23,7 @@ import { ActivityHistory } from '../components/ActivityHistory';
 import { BookingModal } from '../components/BookingModal';
 import { BOOKING_DEFS, BOOKING_KINDS, type BookingKind } from '../components/bookings';
 import { Field } from '../components/Field';
+import { ItineraryTable } from '../components/ItineraryTable';
 import { DocumentUploadModal, FileViewer, ResolveTicketModal, TicketModal } from '../components/TripModals';
 import { ExpiryBadge, formatDate, formatDateTime, formatSize, formatTimestamp, labelOf, TripStatusBadge, travellerCode } from '../format';
 import { TICKET_STATUSES, TRIP_TYPES, type Booking, type Flight, type Ticket, type TripDetail, type TripDocument } from '../types';
@@ -74,7 +75,7 @@ export function TripDetailPage() {
 
   if (isLoading) return <Loader />;
   if (error || !data) return <Text c="red">{(error as Error)?.message ?? 'Trip not found'}</Text>;
-  const { trip, travellers, destinations, flights, documents } = data;
+  const { trip, travellers, itinerary, destinations, flights, documents } = data;
   const openTickets = flights.flatMap((f) => f.tickets).filter((k) => k.status === 'open').length;
   const confirmRemove = (what: string, path: string) => confirm(`Remove this ${what}?`) && remove.mutate(path);
 
@@ -299,6 +300,16 @@ export function TripDetailPage() {
 
             <Card withBorder>
               <Group justify="space-between" mb="sm">
+                <Title order={4}>Itinerary ({itinerary.length})</Title>
+                <Button size="xs" variant="light" component={Link} to={`/trips/${trip.id}/edit`}>
+                  Edit itinerary
+                </Button>
+              </Group>
+              <ItineraryTable items={itinerary} />
+            </Card>
+
+            <Card withBorder>
+              <Group justify="space-between" mb="sm">
                 <Title order={4}>Travellers ({travellers.length})</Title>
                 <Button size="xs" variant="light" component={Link} to={`/trips/${trip.id}/edit`}>
                   Change travellers
@@ -342,15 +353,13 @@ export function TripDetailPage() {
               )}
             </Card>
 
+            {/* Trips saved before the itinerary existed */}
+            {destinations.length > 0 && itinerary.length === 0 && (
             <Card withBorder>
               <Title order={4} mb="sm">
                 Destinations
               </Title>
-              {destinations.length === 0 ? (
-                <Text c="dimmed" size="sm">
-                  No destinations added.
-                </Text>
-              ) : (
+              {(
                 <Table verticalSpacing="xs">
                   <Table.Tbody>
                     {destinations.map((d, i) => (
@@ -368,6 +377,7 @@ export function TripDetailPage() {
                 </Table>
               )}
             </Card>
+            )}
           </Stack>
         </Tabs.Panel>
 

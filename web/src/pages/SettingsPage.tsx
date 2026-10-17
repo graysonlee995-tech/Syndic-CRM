@@ -4,6 +4,7 @@ import { IconAlertCircle, IconMail, IconPlayerPlay } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, notifyError, notifySuccess, queryClient, useAppConfig } from '../api';
 import type { Settings } from '../types';
+import { AssistantKeyCard } from '../components/AssistantKeyCard';
 
 export function SettingsPage() {
   const { data, isLoading } = useQuery({
@@ -67,7 +68,11 @@ export function SettingsPage() {
 
   return (
     <Stack maw={720}>
-      <Title order={2}>Alert settings</Title>
+      <Title order={2}>Settings</Title>
+      <AssistantKeyCard />
+      <Title order={4} mt="sm">
+        Expiry and birthday alerts
+      </Title>
       {!data.mailConfigured && (
         <Alert color="orange" icon={<IconAlertCircle size={18} />} title="Email is not set up">
           SMTP settings are missing on the server, so alert emails are not being sent. Add the SMTP_* values to the

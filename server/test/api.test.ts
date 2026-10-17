@@ -234,6 +234,7 @@ describe('clients, documents and search', () => {
 });
 
 describe('trips, companies and travellers', () => {
+  const day = (n: number) => addDays(todayInTz(config.timezone), n);
   let companyId: number;
   let john: number;
   let sarah: number;
@@ -251,15 +252,39 @@ describe('trips, companies and travellers', () => {
     const res = await staff.post('/api/trips').send({
       name: 'Europe Business Tour',
       company_id: companyId,
-      origin: 'Karachi',
-      departure_date: addDays(todayInTz(config.timezone), 30),
-      return_date: addDays(todayInTz(config.timezone), 40),
       traveller_ids: [john, sarah],
-      destinations: [{ city: 'Paris', country: 'France' }, { city: 'Berlin' }],
+      itinerary: [
+        // Entered out of time order on purpose: the trip's dates come from the earliest and latest items.
+        { type: 'hotel', origin: 'Hotel Adlon', destination: 'Berlin', departure_date: day(33), arrival_date: day(36), confirmation_number: 'H-778' },
+        { type: 'flight', origin: 'KHI', destination: 'Paris', departure_date: day(30), departure_time: '02:15', arrival_date: day(30), arrival_time: '07:40', gds_pnr: 'abc123' },
+        { type: 'flight', origin: 'Berlin', destination: 'KHI', departure_date: day(40), departure_time: '22:00', arrival_date: day(41), arrival_time: '06:30' },
+      ],
     });
     expect(res.status).toBe(201);
     tripId = res.body.trip.id;
     expect(res.body.trip.reference).toMatch(/^TRP-\d{4}-\d{5}$/);
+    expect(res.body.trip).toMatchObject({ origin: 'KHI', departure_date: day(30), return_date: day(41) });
+  });
+
+  it('keeps the itinerary in the order entered and finds trips by PNR or place', async () => {
+    const staff = await signIn('staff@test.com');
+    const detail = (await staff.get(`/api/trips/${tripId}`)).body;
+    expect(detail.itinerary.map((i: { type: string }) => i.type)).toEqual(['hotel', 'flight', 'flight']);
+    expect(detail.itinerary[1]).toMatchObject({ departure_time: '02:15', arrival_time: '07:40', gds_pnr: 'ABC123' });
+    const list = (await staff.get('/api/trips').query({ q: 'abc123' })).body.trips;
+    expect(list).toEqual([expect.objectContaining({ id: tripId, destinations: 'Berlin, Paris, KHI' })]);
+  });
+
+  it('rejects a trip without itinerary or with an arrival before departure', async () => {
+    const staff = await signIn('staff@test.com');
+    const base = { name: 'Bad trip', traveller_ids: [] };
+    expect((await staff.post('/api/trips').send({ ...base, itinerary: [] })).status).toBe(400);
+    const backwards = await staff.post('/api/trips').send({
+      ...base,
+      itinerary: [{ type: 'flight', departure_date: day(5), departure_time: '10:00', arrival_date: day(4) }],
+    });
+    expect(backwards.status).toBe(400);
+    expect(backwards.body.error).toBe('itinerary row 1 arrival date: must be after the departure');
   });
 
   it('shows the same trip in the trips list, the company and both travellers', async () => {
@@ -281,7 +306,7 @@ describe('trips, companies and travellers', () => {
       ...detail.trip,
       name: 'Europe Business Tour 2',
       traveller_ids: [john, sarah, ahmed],
-      destinations: detail.destinations,
+      itinerary: detail.itinerary,
     });
     expect(res.status).toBe(200);
     const fromAhmed = (await staff.get('/api/trips').query({ travellerId: ahmed })).body.trips;

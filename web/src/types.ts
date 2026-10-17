@@ -217,9 +217,32 @@ export interface TripDocument {
   uploaded_by_name: string | null;
 }
 
+export const ITINERARY_TYPES = [
+  { value: 'flight', label: 'Flight' },
+  { value: 'hotel', label: 'Hotel' },
+  { value: 'car', label: 'Car' },
+  { value: 'cruise', label: 'Cruise' },
+  { value: 'train', label: 'Train' },
+  { value: 'transfer', label: 'Transfer' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+export interface ItineraryItem {
+  type: string;
+  origin: string | null;
+  destination: string | null;
+  departure_date: string;
+  departure_time: string | null;
+  arrival_date: string | null;
+  arrival_time: string | null;
+  confirmation_number: string | null;
+  gds_pnr: string | null;
+}
+
 export interface TripDetail {
   trip: Trip;
   travellers: TripTraveller[];
+  itinerary: (ItineraryItem & { id: number })[];
   destinations: (Destination & { id: number })[];
   flights: Flight[];
   hotels: Booking[];

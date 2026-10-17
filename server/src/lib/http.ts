@@ -23,7 +23,8 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(err.status).json({ error: err.message });
   } else if (err instanceof ZodError) {
     const issue = err.issues[0];
-    const field = issue.path.join('.');
+    // itinerary.1.departure_date -> "itinerary row 2 departure date"
+    const field = issue.path.map((p) => (typeof p === 'number' ? `row ${p + 1}` : String(p).replace(/_/g, ' '))).join(' ');
     res.status(400).json({ error: field ? `${field}: ${issue.message}` : issue.message });
   } else if (err instanceof multer.MulterError) {
     const tooBig = err.code === 'LIMIT_FILE_SIZE';

@@ -10,14 +10,6 @@ export const TRIP_STATUSES = ['planned', 'confirmed', 'cancelled'] as const;
 export const TRIP_FILTERS = ['all', 'upcoming', 'ongoing', 'past', 'cancelled', 'open_tickets'] as const;
 export type TripFilter = (typeof TRIP_FILTERS)[number];
 
-export interface DestinationInput {
-  city: string;
-  country: string | null;
-  arrival_date: string | null;
-  departure_date: string | null;
-  notes: string | null;
-}
-
 export interface TripFields {
   name: string;
   company_id: number | null;
@@ -29,9 +21,69 @@ export interface TripFields {
   notes: string | null;
 }
 
-export interface TripInput extends TripFields {
+export const ITINERARY_TYPES = ['flight', 'hotel', 'car', 'cruise', 'train', 'transfer', 'other'] as const;
+
+export interface ItineraryInput {
+  type: (typeof ITINERARY_TYPES)[number];
+  origin: string | null;
+  destination: string | null;
+  departure_date: string;
+  /** HH:MM, local time at the origin */
+  departure_time: string | null;
+  arrival_date: string | null;
+  arrival_time: string | null;
+  confirmation_number: string | null;
+  gds_pnr: string | null;
+}
+
+/** What the trip form sends: the header and the itinerary. */
+export interface TripInput extends Pick<TripFields, 'name' | 'company_id' | 'trip_type' | 'status' | 'notes'> {
   traveller_ids: number[];
-  destinations: DestinationInput[];
+  itinerary: ItineraryInput[];
+}
+
+const ITINERARY_FIELDS = [
+  'type',
+  'origin',
+  'destination',
+  'departure_date',
+  'departure_time',
+  'arrival_date',
+  'arrival_time',
+  'confirmation_number',
+  'gds_pnr',
+] as const;
+
+/**
+ * The trip's origin and dates, worked out from its itinerary: it starts with
+ * the earliest departure and ends with the latest arrival (or departure).
+ * On the same day, times decide only when both items have one; otherwise the
+ * order entered does. A hotel stay is never the trip's starting point.
+ */
+export function tripDatesFrom(itinerary: ItineraryInput[]): Pick<TripFields, 'origin' | 'departure_date' | 'return_date'> {
+  const byDeparture = (a: ItineraryInput, b: ItineraryInput) =>
+    a.departure_date.localeCompare(b.departure_date) ||
+    (a.departure_time && b.departure_time ? a.departure_time.localeCompare(b.departure_time) : 0);
+  const sorted = [...itinerary].sort(byDeparture); // stable: ties keep the entered order
+  const start = sorted.find((i) => i.type !== 'hotel') ?? sorted[0];
+  const departure = sorted[0].departure_date;
+  const end = itinerary.map((i) => i.arrival_date ?? i.departure_date).sort().at(-1)!;
+  return {
+    origin: start.origin,
+    departure_date: departure,
+    return_date: end > departure ? end : null,
+  };
+}
+
+async function replaceItinerary(tripId: number, itinerary: ItineraryInput[]): Promise<void> {
+  await run('DELETE FROM trip_itinerary WHERE trip_id = ?', [tripId]);
+  for (const [position, item] of itinerary.entries()) {
+    await run(
+      `INSERT INTO trip_itinerary (trip_id, position, ${ITINERARY_FIELDS.join(', ')})
+       VALUES (@trip_id, @position, ${ITINERARY_FIELDS.map((f) => '@' + f).join(', ')})`,
+      { trip_id: tripId, position, ...item },
+    );
+  }
 }
 
 export interface TripRow extends TripFields {
@@ -83,38 +135,27 @@ async function replaceTravellers(tripId: number, travellerIds: number[]): Promis
   }
 }
 
-async function replaceDestinations(tripId: number, destinations: DestinationInput[]): Promise<void> {
-  await run('DELETE FROM trip_segments WHERE trip_id = ?', [tripId]);
-  for (const [position, d] of destinations.entries()) {
-    await run(
-      `INSERT INTO trip_segments (trip_id, position, city, country, arrival_date, departure_date, notes)
-       VALUES (@trip_id, @position, @city, @country, @arrival_date, @departure_date, @notes)`,
-      { trip_id: tripId, position, ...d },
-    );
-  }
-}
-
 export function createTrip(input: TripInput, userId: number): Promise<number> {
   return tx(async () => {
-    const { traveller_ids, destinations, ...fields } = input;
+    const { traveller_ids, itinerary, ...header } = input;
     const id = await insert(
       `INSERT INTO trips (reference, ${TRIP_FIELDS.join(', ')}, created_by)
        VALUES (@reference, ${TRIP_FIELDS.map((f) => '@' + f).join(', ')}, @created_by)`,
-      { ...fields, reference: `pending-${crypto.randomUUID()}`, created_by: userId },
+      { ...header, ...tripDatesFrom(itinerary), reference: `pending-${crypto.randomUUID()}`, created_by: userId },
     );
     await run(`UPDATE trips SET reference = 'TRP-' || to_char(created_at, 'YYYY') || '-' || lpad(id::text, 5, '0') WHERE id = ?`, [id]);
     await replaceTravellers(id, traveller_ids);
-    await replaceDestinations(id, destinations);
+    await replaceItinerary(id, itinerary);
     return id;
   });
 }
 
 export function updateTrip(id: number, input: TripInput): Promise<void> {
   return tx(async () => {
-    const { traveller_ids, destinations, ...fields } = input;
-    await updateRow('trips', id, { ...fields }, TRIP_FIELDS);
+    const { traveller_ids, itinerary, ...header } = input;
+    await updateRow('trips', id, { ...header, ...tripDatesFrom(itinerary) }, TRIP_FIELDS);
     await replaceTravellers(id, traveller_ids);
-    await replaceDestinations(id, destinations);
+    await replaceItinerary(id, itinerary);
     await touchTrip(id);
   });
 }
@@ -132,6 +173,11 @@ export function getTrip(id: number, today: string, includeDeleted = false): Prom
      WHERE t.id = @id AND (t.deleted_at IS NULL OR @includeDeleted::boolean)`,
     { id, today, includeDeleted },
   );
+}
+
+/** The id of a live trip by its reference, e.g. TRP-2026-00012 (any case). */
+export function tripIdByReference(reference: string): Promise<number | undefined> {
+  return value<number | undefined>('SELECT id FROM trips WHERE upper(reference) = upper(?) AND deleted_at IS NULL', [reference.trim()]);
 }
 
 /** Permanently deletes the trip and all its bookings; returns stored file names to remove from storage. */
@@ -207,7 +253,7 @@ export async function searchTrips(s: TripSearch): Promise<{ rows: TripListRow[];
     where.push('EXISTS (SELECT 1 FROM trip_travellers tt WHERE tt.trip_id = t.id AND tt.client_id = @travellerId)');
     params.travellerId = s.travellerId;
   }
-  // Every word has to match somewhere: the trip, its company, a destination or a traveller.
+  // Every word has to match somewhere: the trip, its company, its itinerary (places, conf. no., PNR) or a traveller.
   s.q
     .trim()
     .split(/\s+/)
@@ -221,6 +267,7 @@ export async function searchTrips(s: TripSearch): Promise<{ rows: TripListRow[];
         ${['t.reference', 't.name', 't.origin', 't.notes'].map(like).join(' OR ')}
         OR EXISTS (SELECT 1 FROM companies co2 WHERE co2.id = t.company_id AND ${like('co2.name')})
         OR EXISTS (SELECT 1 FROM trip_segments sg WHERE sg.trip_id = t.id AND (${like('sg.city')} OR ${like('sg.country')}))
+        OR EXISTS (SELECT 1 FROM trip_itinerary it WHERE it.trip_id = t.id AND (${['it.origin', 'it.destination', 'it.confirmation_number', 'it.gds_pnr'].map(like).join(' OR ')}))
         OR EXISTS (SELECT 1 ${TRAVELLERS_OF_TRIP} AND (${like('c.first_name')} OR ${like('c.last_name')}))
       )`);
     });
@@ -229,7 +276,11 @@ export async function searchTrips(s: TripSearch): Promise<{ rows: TripListRow[];
   const rows = await query<TripListRow>(
     `SELECT * FROM (
        SELECT t.*, co.name AS company_name, ${PHASE_SQL} AS phase,
-         (SELECT string_agg(sg.city, ', ' ORDER BY sg.position) FROM trip_segments sg WHERE sg.trip_id = t.id) AS destinations,
+         COALESCE(
+           (SELECT string_agg(it.destination, ', ' ORDER BY it.position) FROM trip_itinerary it
+            WHERE it.trip_id = t.id AND it.destination IS NOT NULL),
+           (SELECT string_agg(sg.city, ', ' ORDER BY sg.position) FROM trip_segments sg WHERE sg.trip_id = t.id)
+         ) AS destinations,
          (SELECT string_agg(c.first_name || ' ' || c.last_name, ', ' ORDER BY lower(c.last_name)) ${TRAVELLERS_OF_TRIP}) AS traveller_names,
          (SELECT COUNT(*) ${TRAVELLERS_OF_TRIP}) AS traveller_count,
          ${OPEN_TICKETS} AS open_tickets
@@ -470,6 +521,7 @@ export async function getTripDetail(id: number, today: string) {
   );
 
   const destinations = await query('SELECT * FROM trip_segments WHERE trip_id = ? ORDER BY position', [id]);
+  const itinerary = await query('SELECT * FROM trip_itinerary WHERE trip_id = ? ORDER BY position, id', [id]);
 
   const tickets = await query<TicketRow & { first_name: string; last_name: string }>(
     `SELECT k.*, c.first_name, c.last_name FROM trip_flight_tickets k
@@ -502,6 +554,7 @@ export async function getTripDetail(id: number, today: string) {
   return {
     trip,
     travellers,
+    itinerary,
     destinations,
     flights,
     hotels: await listBookings('hotels', id),

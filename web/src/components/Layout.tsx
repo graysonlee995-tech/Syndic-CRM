@@ -9,6 +9,7 @@ import {
   IconPlane,
   IconPlaneDeparture,
   IconSettings,
+  IconSparkles,
   IconTrash,
   IconUserCircle,
   IconUsers,
@@ -19,8 +20,9 @@ import { api, queryClient } from '../api';
 import type { User } from '../types';
 import { ErrorBoundary } from './ErrorBoundary';
 
-/** The three primary modules, in this order. */
+/** The assistant, then the three primary modules in this order. */
 const MAIN_LINKS = [
+  { to: '/assistant', label: 'Assistant', icon: IconSparkles },
   { to: '/trips', label: 'Trips', icon: IconPlaneDeparture },
   { to: '/companies', label: 'Companies', icon: IconBuilding },
   { to: '/travellers', label: 'Travellers', icon: IconUsersGroup },
@@ -32,7 +34,7 @@ const ADMIN_LINKS = [
   { to: '/trash', label: 'Trash', icon: IconTrash },
   { to: '/audit', label: 'Audit log', icon: IconFileDescription },
   { to: '/employees', label: 'Employees', icon: IconUsers },
-  { to: '/settings', label: 'Alert settings', icon: IconSettings },
+  { to: '/settings', label: 'Settings', icon: IconSettings },
 ];
 
 export function Layout({ user }: { user: User }) {

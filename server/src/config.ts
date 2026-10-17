@@ -53,6 +53,10 @@ export const config = {
   appUrl: env('APP_URL', vercelUrl ?? 'http://localhost:5173').replace(/\/$/, ''),
   /** Vercel rejects requests over 4.5 MB, so uploads are capped lower there. */
   maxUploadMb: Number(env('MAX_UPLOAD_MB', onVercel ? '4' : '15')),
+  /** The AI assistant; its API key is saved in Settings or set as ANTHROPIC_API_KEY (see assistant/key.ts). */
+  assistant: {
+    model: env('ASSISTANT_MODEL', 'claude-sonnet-5-5'),
+  },
   /** Vercel Cron sends this as a bearer token to /api/cron/daily. */
   cronSecret: process.env.CRON_SECRET ?? '',
   dataDir: path.resolve(rootDir, env('DATA_DIR', './data')),

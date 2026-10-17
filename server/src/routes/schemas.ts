@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DOCUMENT_TYPES } from '../db/repo.js';
-import { TICKET_RESOLUTIONS, TICKET_STATUSES, TRIP_STATUSES, TRIP_TYPES } from '../db/trips.js';
+import { ITINERARY_TYPES, TICKET_RESOLUTIONS, TICKET_STATUSES, TRIP_STATUSES, TRIP_TYPES } from '../db/trips.js';
 import { isIsoDate } from '../lib/dates.js';
 
 /** Optional text: trims, and turns empty strings into null. */
@@ -78,31 +78,48 @@ export const companySchema = z.object({
   notes: optText(5000),
 });
 
-export const destinationSchema = z.object({
-  city: z.string().trim().min(1, 'is required').max(100),
-  country: optText(100),
-  arrival_date: optDate,
-  departure_date: optDate,
-  notes: optText(1000),
-});
+/** Optional time of day, HH:MM (24-hour). */
+export const optTime = z
+  .string()
+  .trim()
+  .nullish()
+  .transform((v) => (v ? v.slice(0, 5) : null))
+  .refine((v) => v === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(v), 'must be a valid time (HH:MM)');
 
-export const tripSchema = z
+export const itineraryItemSchema = z
   .object({
-    name: z.string().trim().min(1, 'is required').max(200),
-    company_id: optId,
+    type: z.enum(ITINERARY_TYPES),
     origin: optText(100),
-    departure_date: z.string().trim().refine(isIsoDate, 'must be a valid date (YYYY-MM-DD)'),
-    return_date: optDate,
-    trip_type: z.enum(TRIP_TYPES).default('business'),
-    status: z.enum(TRIP_STATUSES).default('planned'),
-    notes: optText(5000),
-    traveller_ids: idList,
-    destinations: z.array(destinationSchema).max(50).default([]),
+    destination: optText(100),
+    departure_date: z
+      .string({ required_error: 'is required' })
+      .trim()
+      .refine(isIsoDate, 'is required (a valid date)'),
+    departure_time: optTime,
+    arrival_date: optDate,
+    arrival_time: optTime,
+    confirmation_number: optText(50),
+    gds_pnr: optText(20).transform((v) => v?.toUpperCase() ?? null),
   })
-  .refine((t) => !t.return_date || t.return_date >= t.departure_date, {
-    message: 'must be on or after the departure date',
-    path: ['return_date'],
-  });
+  .refine(
+    (i) =>
+      !i.arrival_date ||
+      `${i.arrival_date}T${i.arrival_time ?? '23:59'}` >= `${i.departure_date}T${i.departure_time ?? '00:00'}`,
+    { message: 'must be after the departure', path: ['arrival_date'] },
+  );
+
+export const tripSchema = z.object({
+  name: z.string().trim().min(1, 'is required').max(200),
+  company_id: optId,
+  trip_type: z.enum(TRIP_TYPES).default('business'),
+  status: z.enum(TRIP_STATUSES).default('planned'),
+  notes: optText(5000),
+  traveller_ids: idList,
+  itinerary: z
+    .array(itineraryItemSchema)
+    .min(1, 'add at least one item (flight, hotel, car...) with its departure date')
+    .max(100),
+});
 
 /** Field validation per booking kind; keys must match BOOKINGS in db/trips.ts. */
 export const bookingSchemas = {

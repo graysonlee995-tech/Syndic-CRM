@@ -7,7 +7,7 @@
   "regions": ["bom1"],
   "functions": {
     "api/index.mjs": {
-      "maxDuration": 30,
+      "maxDuration": 60,
       "includeFiles": "server/dist/**"
     }
   },
