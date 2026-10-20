@@ -5,6 +5,9 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, notifyError, notifySuccess, queryClient, useAppConfig } from '../api';
 import type { Settings } from '../types';
 import { AssistantKeyCard } from '../components/AssistantKeyCard';
+import { EmailSettingsCard } from '../components/EmailSettingsCard';
+import { BackupCard } from '../components/BackupCard';
+import { AppearanceCard } from '../components/ThemeSwitch';
 
 export function SettingsPage() {
   const { data, isLoading } = useQuery({
@@ -69,14 +72,16 @@ export function SettingsPage() {
   return (
     <Stack maw={720}>
       <Title order={2}>Settings</Title>
+      <AppearanceCard />
       <AssistantKeyCard />
+      <EmailSettingsCard />
+      <BackupCard />
       <Title order={4} mt="sm">
         Expiry and birthday alerts
       </Title>
       {!data.mailConfigured && (
         <Alert color="orange" icon={<IconAlertCircle size={18} />} title="Email is not set up">
-          SMTP settings are missing on the server, so alert emails are not being sent. Add the SMTP_* values to the
-          server's .env file and restart it.
+          Alert emails are not being sent yet. Fill in the Email section above and click Check and save.
         </Alert>
       )}
       <Card withBorder>

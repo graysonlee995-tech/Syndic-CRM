@@ -84,7 +84,7 @@ function TwoFactor({ user }: { user: User }) {
       <Stack>
         <Group>
           <Title order={4}>Two-factor authentication</Title>
-          <Badge color={user.totp_enabled ? 'teal' : 'gray'}>{user.totp_enabled ? 'On' : 'Off'}</Badge>
+          <Badge color={user.totp_enabled ? 'mono' : 'gray'}>{user.totp_enabled ? 'On' : 'Off'}</Badge>
         </Group>
         <Text size="sm" c="dimmed">
           Asks for a code from an authenticator app (Google Authenticator, Microsoft Authenticator) when you sign in.

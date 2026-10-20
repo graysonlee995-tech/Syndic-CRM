@@ -221,12 +221,12 @@ export function EmployeesPage() {
                       ) : u.locked ? (
                         <Badge color="red">Locked</Badge>
                       ) : (
-                        <Badge color="teal" variant="light">
+                        <Badge color="mono" variant="light">
                           Active
                         </Badge>
                       )}
                     </Table.Td>
-                    <Table.Td>{u.receives_alerts ? <IconBell size={16} color="var(--mantine-color-teal-6)" /> : '-'}</Table.Td>
+                    <Table.Td>{u.receives_alerts ? <IconBell size={16} color="var(--mantine-primary-color-filled)" /> : '-'}</Table.Td>
                     <Table.Td>{u.totp_enabled ? 'On' : 'Off'}</Table.Td>
                     <Table.Td>{formatTimestamp(u.last_login_at)}</Table.Td>
                   </Table.Tr>

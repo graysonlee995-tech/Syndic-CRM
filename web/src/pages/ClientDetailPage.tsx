@@ -24,9 +24,10 @@ import { ActivityHistory } from '../components/ActivityHistory';
 import { DocumentFormModal } from '../components/DocumentFormModal';
 import { DocumentViewer } from '../components/DocumentViewer';
 import { Field } from '../components/Field';
+import { ContactsList } from '../components/ExtraContacts';
 import { TripsTable } from '../components/TripsTable';
 import { ExpiryBadge, formatDate, formatTimestamp, travellerCode } from '../format';
-import { documentLabel, type Client, type ClientDocument, type LoyaltyMembership } from '../types';
+import { documentLabel, type Client, type ClientDocument, type LoyaltyMembership, type Contacts } from '../types';
 
 const BLANK_LOYALTY = { airline: '', programme: '', member_number: '', tier: '' };
 
@@ -118,7 +119,7 @@ export function ClientDetailPage() {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['client', id],
-    queryFn: () => api<{ client: Client; documents: ClientDocument[]; loyalty: LoyaltyMembership[] }>(`/travellers/${id}`),
+    queryFn: () => api<{ client: Client; contacts: Contacts; documents: ClientDocument[]; loyalty: LoyaltyMembership[] }>(`/travellers/${id}`),
   });
 
   const trashClient = useMutation({
@@ -235,8 +236,9 @@ export function ClientDetailPage() {
               <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="lg">
                 <Field label="Phone" value={client.phone} />
                 <Field label="Email" value={client.email} />
-                <Field label="Address" value={[client.address_line, client.city, client.country].filter(Boolean).join(', ')} />
+                <Field label="Address" value={[client.address_line, client.state, client.city, client.country].filter(Boolean).join(', ')} />
               </SimpleGrid>
+              <ContactsList contacts={data.contacts} />
             </Card>
             <Card withBorder>
               <Title order={4} mb="sm">

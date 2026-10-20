@@ -24,6 +24,7 @@ export interface ClientInput {
   phone: string | null;
   email: string | null;
   address_line: string | null;
+  state: string | null;
   city: string | null;
   country: string | null;
   seat_preference: string | null;
@@ -63,12 +64,19 @@ export interface LoyaltyMembership {
   tier: string | null;
 }
 
+/** Extra phone numbers and addresses of a company or traveller. */
+export interface Contacts {
+  phones: { id: number; label: string | null; number: string }[];
+  addresses: { id: number; label: string | null; address_line: string | null; state: string | null; city: string | null; country: string | null }[];
+}
+
 export interface CompanyInput {
   name: string;
   primary_contact: string | null;
   phone: string | null;
   email: string | null;
   address_line: string | null;
+  state: string | null;
   city: string | null;
   country: string | null;
   notes: string | null;

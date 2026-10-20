@@ -114,7 +114,7 @@ export function DocumentFormModal({ clientId, document, opened, onClose }: Props
           >
             <Group justify="center" gap="md" mih={90} style={{ pointerEvents: 'none' }}>
               <Dropzone.Accept>
-                <IconFileUpload size={36} color="var(--mantine-color-teal-6)" />
+                <IconFileUpload size={36} color="var(--mantine-primary-color-filled)" />
               </Dropzone.Accept>
               <Dropzone.Reject>
                 <IconX size={36} color="var(--mantine-color-red-6)" />

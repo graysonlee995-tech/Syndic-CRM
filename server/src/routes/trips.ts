@@ -17,6 +17,7 @@ import {
   getTrip,
   getTripDetail,
   getTripDocument,
+  itineraryFor,
   hasTicket,
   resolveTicket,
   searchTrips,
@@ -33,6 +34,7 @@ import { readFile, removeFile } from '../lib/files.js';
 import { contentDisposition, HttpError, parseId } from '../lib/http.js';
 import { bookingSchemas, idList, optId, pagingSchema, resolutionSchema, sortSchema, ticketSchema, tripSchema } from './schemas.js';
 import { storeUpload, upload } from './uploads.js';
+import { EXPORT_LIMIT, exportFileName, sendWorkbook } from '../lib/excel.js';
 
 /** Trips and everything booked on them. Companies and travellers link to these same records. */
 export const tripsRouter = Router();
@@ -67,17 +69,16 @@ const logTrip = (req: Request, tripId: number, action: string, details?: string)
 
 // ---------------------------------------------------------------- trips
 
-tripsRouter.get('/', async (req, res) => {
-  const query = pagingSchema
-    .merge(sortSchema)
-    .extend({
-      q: z.string().max(200).optional().default(''),
-      filter: z.enum(TRIP_FILTERS).default('all'),
-      companyId: optId,
-      travellerId: optId,
-    })
-    .parse(req.query);
-  const { rows, total } = await searchTrips({
+/** The Trips list's filters; the Excel export uses the same ones. */
+const listSchema = pagingSchema.merge(sortSchema).extend({
+  q: z.string().max(200).optional().default(''),
+  filter: z.enum(TRIP_FILTERS).default('all'),
+  companyId: optId,
+  travellerId: optId,
+});
+
+const searchFrom = (query: z.infer<typeof listSchema>, limit: number, offset: number) =>
+  searchTrips({
     q: query.q,
     filter: query.filter,
     companyId: query.companyId,
@@ -85,10 +86,63 @@ tripsRouter.get('/', async (req, res) => {
     sort: query.sort ?? null,
     dir: query.dir,
     today: today(),
-    limit: query.pageSize,
-    offset: (query.page - 1) * query.pageSize,
+    limit,
+    offset,
   });
+
+tripsRouter.get('/', async (req, res) => {
+  const query = listSchema.parse(req.query);
+  const { rows, total } = await searchFrom(query, query.pageSize, (query.page - 1) * query.pageSize);
   res.json({ trips: rows, total, page: query.page, pageSize: query.pageSize });
+});
+
+/** The filtered list as an Excel file: one sheet of trips, one of their itinerary items. */
+tripsRouter.get('/export', async (req, res) => {
+  const query = listSchema.parse(req.query);
+  const { rows } = await searchFrom(query, EXPORT_LIMIT, 0);
+  const byId = new Map(rows.map((t) => [t.id, t]));
+  const itinerary = await itineraryFor(rows.map((t) => t.id));
+  const search = query.q ? `, search "${query.q}"` : '';
+  await audit(currentUser(req), 'trips_exported', 'trip', null, `${rows.length} trip(s); filter ${query.filter}${search}`);
+  await sendWorkbook(res, exportFileName('trips', today()), [
+    {
+      name: 'Trips',
+      columns: [
+        { header: 'Reference', key: 'reference', width: 16 },
+        { header: 'Trip name', key: 'name', width: 30 },
+        { header: 'Company', key: 'company_name', width: 24 },
+        { header: 'Travellers', key: 'traveller_names', width: 36 },
+        { header: 'Origin', key: 'origin' },
+        { header: 'Destinations', key: 'destinations', width: 28 },
+        { header: 'Departure', key: 'departure_date' },
+        { header: 'Return / end', key: 'return_date' },
+        { header: 'Type', key: 'trip_type' },
+        { header: 'Booking status', key: 'status', width: 16 },
+        { header: 'Status', key: 'phase' },
+        { header: 'Open tickets', key: 'open_tickets' },
+        { header: 'Notes', key: 'notes', width: 30 },
+        { header: 'Last updated', key: 'updated_at', width: 22 },
+      ],
+      rows,
+    },
+    {
+      name: 'Itinerary',
+      columns: [
+        { header: 'Trip reference', key: 'reference', width: 16 },
+        { header: 'Trip name', key: 'trip_name', width: 30 },
+        { header: 'Type', key: 'type' },
+        { header: 'Origin', key: 'origin', width: 18 },
+        { header: 'Destination', key: 'destination', width: 18 },
+        { header: 'Departure date', key: 'departure_date', width: 15 },
+        { header: 'Departure time', key: 'departure_time', width: 15 },
+        { header: 'Arrival date', key: 'arrival_date', width: 15 },
+        { header: 'Arrival time', key: 'arrival_time', width: 15 },
+        { header: 'Conf. No.', key: 'confirmation_number', width: 16 },
+        { header: 'GDS PNR', key: 'gds_pnr' },
+      ],
+      rows: itinerary.map((i) => ({ ...i, reference: byId.get(i.trip_id)?.reference, trip_name: byId.get(i.trip_id)?.name })),
+    },
+  ]);
 });
 
 tripsRouter.post('/', async (req, res) => {

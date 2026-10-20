@@ -59,7 +59,7 @@ const tripInput = {
 beforeAll(async () => {
   const user = await createUser({ name: 'Agent', email: 'agent@test.com', passwordHash: bcrypt.hashSync(PASSWORD, 4), role: 'staff' });
   await createUser({ name: 'Boss', email: 'boss@test.com', passwordHash: bcrypt.hashSync(PASSWORD, 4), role: 'admin' });
-  const empty = { company_id: null, date_of_birth: null, gender: null, nationality: null, phone: null, email: null, address_line: null, city: null, country: null, seat_preference: null, meal_preference: null, cabin_preference: null, special_requirements: null, notes: null };
+  const empty = { company_id: null, date_of_birth: null, gender: null, nationality: null, phone: null, email: null, address_line: null, state: null, city: null, country: null, seat_preference: null, meal_preference: null, cabin_preference: null, special_requirements: null, notes: null };
   travellerId = await createClient({ ...empty, first_name: 'Hina', last_name: 'Raza' }, user);
 });
 

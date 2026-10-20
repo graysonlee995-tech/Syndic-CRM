@@ -13,7 +13,7 @@ const MIGRATION_1_TABLES = [
 ];
 
 /** Every table, parents before children (used by the backup and data copy scripts). */
-export const TABLES = [...MIGRATION_1_TABLES, 'trip_itinerary'];
+export const TABLES = [...MIGRATION_1_TABLES, 'trip_itinerary', 'contact_phones', 'contact_addresses'];
 
 /**
  * Schema changes, applied in order and recorded in schema_migrations, so each
@@ -368,6 +368,51 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_trip_itinerary_trip ON trip_itinerary(trip_id, position);
   CREATE INDEX IF NOT EXISTS idx_trip_itinerary_pnr ON trip_itinerary (lower(gds_pnr));
   ALTER TABLE trip_itinerary ENABLE ROW LEVEL SECURITY;
+  `,
+
+  // 4: any number of extra phone numbers and addresses for a company or a traveller
+  /* sql */ `
+  CREATE TABLE contact_phones (
+    ${id},
+    company_id integer REFERENCES companies(id) ON DELETE CASCADE,
+    client_id integer REFERENCES clients(id) ON DELETE CASCADE,
+    position integer NOT NULL DEFAULT 0,
+    label text,
+    number text NOT NULL,
+    CHECK ((company_id IS NULL) <> (client_id IS NULL))
+  );
+  CREATE INDEX idx_contact_phones_company ON contact_phones(company_id);
+  CREATE INDEX idx_contact_phones_client ON contact_phones(client_id);
+
+  CREATE TABLE contact_addresses (
+    ${id},
+    company_id integer REFERENCES companies(id) ON DELETE CASCADE,
+    client_id integer REFERENCES clients(id) ON DELETE CASCADE,
+    position integer NOT NULL DEFAULT 0,
+    label text,
+    address_line text,
+    city text,
+    country text,
+    CHECK ((company_id IS NULL) <> (client_id IS NULL)),
+    CHECK (address_line IS NOT NULL OR city IS NOT NULL OR country IS NOT NULL)
+  );
+  CREATE INDEX idx_contact_addresses_company ON contact_addresses(company_id);
+  CREATE INDEX idx_contact_addresses_client ON contact_addresses(client_id);
+
+  ALTER TABLE contact_phones ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE contact_addresses ENABLE ROW LEVEL SECURITY;
+  `,
+
+  // 5: state / province in every address (entered as address, state, city, country)
+  /* sql */ `
+  ALTER TABLE clients ADD COLUMN state text;
+  ALTER TABLE companies ADD COLUMN state text;
+  ALTER TABLE contact_addresses ADD COLUMN state text;
+  -- An extra address may now consist of a state alone. Postgres named migration 4's
+  -- unnamed checks contact_addresses_check (owner) and contact_addresses_check1 (content).
+  ALTER TABLE contact_addresses DROP CONSTRAINT IF EXISTS contact_addresses_check1;
+  ALTER TABLE contact_addresses ADD CONSTRAINT contact_addresses_has_content
+    CHECK (address_line IS NOT NULL OR state IS NOT NULL OR city IS NOT NULL OR country IS NOT NULL);
   `,
 ];
 

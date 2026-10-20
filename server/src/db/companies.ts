@@ -7,6 +7,7 @@ export interface CompanyInput {
   phone: string | null;
   email: string | null;
   address_line: string | null;
+  state: string | null;
   city: string | null;
   country: string | null;
   notes: string | null;
@@ -20,7 +21,7 @@ export interface CompanyRow extends CompanyInput {
   deleted_at: string | null;
 }
 
-const COMPANY_FIELDS = ['name', 'primary_contact', 'phone', 'email', 'address_line', 'city', 'country', 'notes'] as const;
+const COMPANY_FIELDS = ['name', 'primary_contact', 'phone', 'email', 'address_line', 'state', 'city', 'country', 'notes'] as const;
 
 export function createCompany(input: CompanyInput, userId: number): Promise<number> {
   return insert(
@@ -79,7 +80,7 @@ const COMPANY_SORTS: Record<string, string> = {
   updated: 'updated_at {dir}, id',
 };
 
-const SEARCHABLE = ['co.name', 'co.primary_contact', 'co.email', 'co.phone', 'co.city', 'co.country'];
+const SEARCHABLE = ['co.name', 'co.primary_contact', 'co.email', 'co.phone', 'co.address_line', 'co.state', 'co.city', 'co.country'];
 
 export async function searchCompanies(s: CompanySearch): Promise<{ rows: CompanyListRow[]; total: number }> {
   const where: string[] = ['co.deleted_at IS NULL'];
@@ -91,7 +92,13 @@ export async function searchCompanies(s: CompanySearch): Promise<{ rows: Company
     .slice(0, 8)
     .forEach((word, i) => {
       params[`q${i}`] = likePattern(word);
-      where.push(`(${SEARCHABLE.map((col) => `${col} ILIKE @q${i} ESCAPE '\\'`).join(' OR ')})`);
+      const like = (col: string) => `${col} ILIKE @q${i} ESCAPE '\\'`;
+      where.push(`(
+        ${SEARCHABLE.map(like).join(' OR ')}
+        OR EXISTS (SELECT 1 FROM contact_phones cp WHERE cp.company_id = co.id AND ${like('cp.number')})
+        OR EXISTS (SELECT 1 FROM contact_addresses ca WHERE ca.company_id = co.id
+                   AND (${['ca.address_line', 'ca.state', 'ca.city', 'ca.country'].map(like).join(' OR ')}))
+      )`);
     });
   const whereSql = `WHERE ${where.join(' AND ')}`;
 

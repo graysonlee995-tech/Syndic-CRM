@@ -226,6 +226,7 @@ export interface ClientInput {
   phone: string | null;
   email: string | null;
   address_line: string | null;
+  state: string | null;
   city: string | null;
   country: string | null;
   seat_preference: string | null;
@@ -253,6 +254,7 @@ const CLIENT_FIELDS = [
   'phone',
   'email',
   'address_line',
+  'state',
   'city',
   'country',
   'seat_preference',
@@ -270,14 +272,23 @@ export async function reindexClient(id: number): Promise<void> {
     'SELECT document_number FROM documents WHERE client_id = ? AND document_number IS NOT NULL',
     [id],
   );
+  // Extra phone numbers and addresses are searchable too.
+  const phones = [c.phone, ...(await column<string>('SELECT number FROM contact_phones WHERE client_id = ?', [id]))].filter(
+    (p): p is string => Boolean(p),
+  );
+  const addresses = await query<{ address_line: string | null; state: string | null; city: string | null; country: string | null }>(
+    'SELECT address_line, state, city, country FROM contact_addresses WHERE client_id = ?',
+    [id],
+  );
   const parts = [
     c.first_name,
     c.last_name,
     c.address_line,
+    c.state,
     c.city,
     c.country,
-    c.phone,
-    c.phone ? compact(c.phone) : null,
+    ...addresses.flatMap((a) => [a.address_line, a.state, a.city, a.country]),
+    ...phones.flatMap((p) => [p, compact(p)]),
     c.email,
     ...numbers.flatMap((n) => [n, compact(n)]),
   ];

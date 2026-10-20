@@ -7,7 +7,7 @@ const TYPE_COLORS: Record<string, string> = {
   hotel: 'grape',
   car: 'orange',
   cruise: 'cyan',
-  train: 'teal',
+  train: 'indigo',
   transfer: 'yellow',
   other: 'gray',
 };

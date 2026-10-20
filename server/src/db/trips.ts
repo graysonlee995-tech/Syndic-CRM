@@ -563,3 +563,9 @@ export async function getTripDetail(id: number, today: string) {
     documents,
   };
 }
+
+/** Itinerary rows of many trips, in each trip's order (for exports). */
+export function itineraryFor(tripIds: number[]): Promise<(ItineraryInput & { trip_id: number })[]> {
+  if (!tripIds.length) return Promise.resolve([]);
+  return query(`SELECT * FROM trip_itinerary WHERE trip_id IN (${tripIds.join(',')}) ORDER BY trip_id, position, id`);
+}

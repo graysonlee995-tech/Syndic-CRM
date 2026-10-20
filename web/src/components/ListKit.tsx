@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Group, Pagination, Table, Text, UnstyledButton } from '@mantine/core';
-import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react';
+import { Button, Group, Pagination, Table, Text, UnstyledButton } from '@mantine/core';
+import { IconChevronDown, IconChevronUp, IconFileSpreadsheet, IconSelector } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
@@ -55,13 +55,46 @@ export function SortTh({ list, sortKey, children, defaultDir = 'asc' }: { list: 
   );
 }
 
-export function ListFooter({ list, total, noun }: { list: ListState; total: number | undefined; noun: string }) {
+/** The list's search parameters without paging, for "export everything matching". */
+export function exportQuery(search: URLSearchParams): string {
+  const all = new URLSearchParams(search);
+  all.delete('page');
+  all.delete('pageSize');
+  return all.toString();
+}
+
+export function ListFooter({
+  list,
+  total,
+  noun,
+  exportHref,
+}: {
+  list: ListState;
+  total: number | undefined;
+  noun: string;
+  /** Excel download of everything matching the current filters. */
+  exportHref?: string;
+}) {
   if (!total) return null;
   return (
     <Group justify="space-between">
-      <Text size="sm" c="dimmed">
-        {total} {noun}
-      </Text>
+      <Group gap="sm">
+        <Text size="sm" c="dimmed">
+          {total} {noun}
+        </Text>
+        {exportHref && (
+          <Button
+            component="a"
+            href={exportHref}
+            size="xs"
+            variant="default"
+            leftSection={<IconFileSpreadsheet size={14} />}
+            title={`Download the ${total} ${noun} matching the current search and filters as an Excel file`}
+          >
+            Export to Excel
+          </Button>
+        )}
+      </Group>
       {total > PAGE_SIZE && (
         <Pagination total={Math.ceil(total / PAGE_SIZE)} value={list.page} onChange={(p) => list.set({ page: String(p) })} />
       )}

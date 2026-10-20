@@ -109,8 +109,8 @@ export function DashboardPage() {
       <Title order={2}>Dashboard</Title>
       <SimpleGrid cols={{ base: 2, md: 4, lg: 7 }}>
         <Stat label="Upcoming trips" value={data.totals.upcomingTrips} color="blue" icon={IconPlaneDeparture} />
-        <Stat label="Travellers" value={data.totals.clients} color="teal" icon={IconUsersGroup} />
-        <Stat label="Documents" value={data.totals.documents} color="teal" icon={IconFiles} />
+        <Stat label="Travellers" value={data.totals.clients} color="mono" icon={IconUsersGroup} />
+        <Stat label="Documents" value={data.totals.documents} color="mono" icon={IconFiles} />
         <Stat label="Expired" value={data.counts.expired} color="red" icon={IconAlertTriangle} />
         <Stat label="Next 7 days" value={data.counts.within7} color="red" icon={IconClockHour4} />
         <Stat label="Next 30 days" value={data.counts.within30} color="orange" icon={IconClockHour4} />

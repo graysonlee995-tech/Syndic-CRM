@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { getSecret, setSecret } from '../db/repo.js';
-import { decrypt, encrypt } from '../lib/files.js';
+import { readSecret, writeSecret } from '../lib/secrets.js';
 
 /**
  * The Anthropic API key for the assistant. An admin can save one in Settings
@@ -17,17 +16,7 @@ export interface KeyStatus {
   last4: string | null;
 }
 
-async function savedKey(): Promise<string | null> {
-  const stored = await getSecret(SECRET_NAME);
-  if (!stored) return null;
-  try {
-    return decrypt(Buffer.from(stored, 'base64')).toString('utf8');
-  } catch {
-    // Saved with a different FILE_ENCRYPTION_KEY: treat as not set.
-    console.error('[assistant] the saved API key cannot be decrypted with the current FILE_ENCRYPTION_KEY');
-    return null;
-  }
-}
+const savedKey = () => readSecret(SECRET_NAME);
 
 export async function assistantKey(): Promise<{ key: string; source: 'settings' | 'environment' } | null> {
   const saved = await savedKey();
@@ -68,9 +57,9 @@ export async function saveAssistantKey(key: string, model: string): Promise<void
     if (err instanceof Anthropic.APIError) throw new Error(`Anthropic could not check the key right now (${err.status}). Try again shortly.`);
     throw new Error('Could not reach Anthropic to check the key. Check the internet connection and try again.');
   }
-  await setSecret(SECRET_NAME, encrypt(Buffer.from(key, 'utf8')).toString('base64'));
+  await writeSecret(SECRET_NAME, key);
 }
 
 export async function removeAssistantKey(): Promise<void> {
-  await setSecret(SECRET_NAME, null);
+  await writeSecret(SECRET_NAME, null);
 }

@@ -6,7 +6,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { ExpiryBadge, formatDate, formatTimestamp, travellerCode } from '../format';
 import { DOCUMENT_TYPES, type ClientListRow } from '../types';
-import { ListFooter, PAGE_SIZE, SortTh, stop, useCompanyOptions, useListState } from './ListKit';
+import { exportQuery, ListFooter, PAGE_SIZE, SortTh, stop, useCompanyOptions, useListState } from './ListKit';
 
 interface Props {
   urlBacked?: boolean;
@@ -166,7 +166,7 @@ export function TravellersTable({ urlBacked = false, companyId }: Props) {
           </Table.ScrollContainer>
         )}
       </Card>
-      <ListFooter list={list} total={data?.total} noun="travellers" />
+      <ListFooter list={list} total={data?.total} noun="travellers" exportHref={`/api/travellers/export?${exportQuery(search)}`} />
     </Stack>
   );
 }

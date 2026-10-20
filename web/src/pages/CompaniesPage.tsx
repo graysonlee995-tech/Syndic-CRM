@@ -4,7 +4,7 @@ import { IconEdit, IconEye, IconPlus, IconSearch } from '@tabler/icons-react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { ListFooter, PAGE_SIZE, SortTh, stop, useListState } from '../components/ListKit';
+import { exportQuery, ListFooter, PAGE_SIZE, SortTh, stop, useListState } from '../components/ListKit';
 import { companyCode, formatTimestamp } from '../format';
 import type { CompanyListRow } from '../types';
 
@@ -115,7 +115,7 @@ export function CompaniesPage() {
           </Table.ScrollContainer>
         )}
       </Card>
-      <ListFooter list={list} total={data?.total} noun="companies" />
+      <ListFooter list={list} total={data?.total} noun="companies" exportHref={`/api/companies/export?${exportQuery(search)}`} />
     </Stack>
   );
 }

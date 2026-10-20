@@ -21,6 +21,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { useCompanyOptions, useTravellerOptions } from '../components/ListKit';
+import { CompanyPicker } from '../components/CompanyPicker';
 import { ITINERARY_TYPES, TRIP_STATUSES, TRIP_TYPES, type ItineraryItem, type Trip, type TripDetail } from '../types';
 
 /** One itinerary row in the form; every field is a string while editing. */
@@ -190,14 +191,10 @@ export function TripFormPage() {
           </Title>
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
             <TextInput label="Trip name" required placeholder="e.g. Europe Business Tour" {...field('name')} autoFocus />
-            <Select
-              label="Company"
+            <CompanyPicker
+              value={form.company_id}
+              onChange={(company_id) => setForm((f) => ({ ...f, company_id }))}
               placeholder="No company (private trip)"
-              clearable
-              searchable
-              data={companies.data ?? []}
-              value={form.company_id || null}
-              onChange={(v) => setForm((f) => ({ ...f, company_id: v ?? '' }))}
             />
             <MultiSelect
               label="Travellers"

@@ -6,7 +6,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { formatDate, formatTimestamp, labelOf, TripStatusBadge } from '../format';
 import { TRIP_FILTERS, TRIP_TYPES, type TripListRow } from '../types';
-import { ListFooter, PAGE_SIZE, SortTh, stop, useCompanyOptions, useListState } from './ListKit';
+import { exportQuery, ListFooter, PAGE_SIZE, SortTh, stop, useCompanyOptions, useListState } from './ListKit';
 
 interface Props {
   /** Full Trips page: state lives in the URL and a company filter is shown. */
@@ -168,7 +168,7 @@ export function TripsTable({ urlBacked = false, companyId, travellerId }: Props)
           </Table.ScrollContainer>
         )}
       </Card>
-      <ListFooter list={list} total={data?.total} noun="trips" />
+      <ListFooter list={list} total={data?.total} noun="trips" exportHref={`/api/trips/export?${exportQuery(search)}`} />
     </Stack>
   );
 }

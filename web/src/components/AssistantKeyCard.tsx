@@ -45,13 +45,13 @@ export function AssistantKeyCard() {
     <Card withBorder>
       <Group justify="space-between" mb="xs">
         <Group gap="xs">
-          <IconSparkles size={20} color="var(--mantine-color-teal-6)" />
+          <IconSparkles size={20} color="var(--mantine-primary-color-filled)" />
           <Title order={4}>AI assistant</Title>
         </Group>
         {status.isLoading ? (
           <Loader size="xs" />
         ) : s?.configured ? (
-          <Badge color="teal" variant="light">
+          <Badge color="mono" variant="light">
             Connected
           </Badge>
         ) : (

@@ -35,7 +35,7 @@ export function LoginPage() {
         <form onSubmit={submit}>
           <Stack>
             <Group gap="xs">
-              <IconPlane size={28} color="var(--mantine-color-teal-6)" />
+              <IconPlane size={28} color="var(--mantine-primary-color-filled)" />
               <Title order={2}>Syndic CRM</Title>
             </Group>
             <Text c="dimmed" size="sm">

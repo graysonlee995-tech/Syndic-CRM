@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { DOCUMENT_TYPES } from '../db/repo.js';
 import { ITINERARY_TYPES, TICKET_RESOLUTIONS, TICKET_STATUSES, TRIP_STATUSES, TRIP_TYPES } from '../db/trips.js';
 import { isIsoDate } from '../lib/dates.js';
+import { canonicalCountry } from '../lib/countries.js';
 
 /** Optional text: trims, and turns empty strings into null. */
 export const optText = (max = 200) =>
@@ -11,6 +12,22 @@ export const optText = (max = 200) =>
     .max(max)
     .nullish()
     .transform((v) => v || null);
+
+/** Optional country, which must be on the agency list (common short forms like "UAE" are accepted). */
+export const optCountry = z
+  .string()
+  .trim()
+  .max(100)
+  .nullish()
+  .transform((v, ctx) => {
+    if (!v) return null;
+    const country = canonicalCountry(v);
+    if (!country) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `"${v}" is not in the country list; choose one from the list` });
+      return z.NEVER;
+    }
+    return country;
+  });
 
 export const optDate = z
   .string()
@@ -51,13 +68,31 @@ export const clientSchema = z.object({
   phone: optText(50),
   email: optText(200),
   address_line: optText(300),
+  state: optText(100),
   city: optText(100),
-  country: optText(100),
+  country: optCountry,
   seat_preference: optText(50),
   meal_preference: optText(100),
   cabin_preference: optText(50),
   special_requirements: optText(2000),
   notes: optText(5000),
+});
+
+/**
+ * Extra phone numbers and addresses sent with a company or traveller form.
+ * A list that is left out entirely is not changed.
+ */
+export const contactsSchema = z.object({
+  phones: z
+    .array(z.object({ label: optText(50), number: z.string().trim().max(50) }))
+    .max(50)
+    .optional()
+    .transform((list) => list?.filter((p) => p.number)),
+  addresses: z
+    .array(z.object({ label: optText(50), address_line: optText(300), state: optText(100), city: optText(100), country: optCountry }))
+    .max(50)
+    .optional()
+    .transform((list) => list?.filter((a) => a.address_line || a.state || a.city || a.country)),
 });
 
 export const loyaltySchema = z.object({
@@ -73,8 +108,9 @@ export const companySchema = z.object({
   phone: optText(50),
   email: optText(200),
   address_line: optText(300),
+  state: optText(100),
   city: optText(100),
-  country: optText(100),
+  country: optCountry,
   notes: optText(5000),
 });
 

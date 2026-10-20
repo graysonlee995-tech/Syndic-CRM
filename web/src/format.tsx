@@ -69,7 +69,7 @@ export const travellerCode = (id: number) => `T-${String(id).padStart(4, '0')}`;
 
 const PHASES: Record<string, { label: string; color: string }> = {
   upcoming: { label: 'Upcoming', color: 'blue' },
-  ongoing: { label: 'Ongoing', color: 'teal' },
+  ongoing: { label: 'Ongoing', color: 'mono' },
   past: { label: 'Completed', color: 'gray' },
   cancelled: { label: 'Cancelled', color: 'red' },
 };

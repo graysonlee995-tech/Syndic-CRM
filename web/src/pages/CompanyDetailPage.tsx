@@ -6,11 +6,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, notifyError, notifySuccess, queryClient, useMe } from '../api';
 import { ActivityHistory } from '../components/ActivityHistory';
 import { Field } from '../components/Field';
+import { ContactsList } from '../components/ExtraContacts';
 import { TravellersTable } from '../components/TravellersTable';
 import { DocumentUploadModal, FileViewer } from '../components/TripModals';
 import { TripsTable } from '../components/TripsTable';
 import { companyCode, formatSize, formatTimestamp } from '../format';
-import type { Company, CompanyDocument } from '../types';
+import type { Company, CompanyDocument, Contacts } from '../types';
 
 export function CompanyDetailPage() {
   const { id } = useParams();
@@ -21,7 +22,7 @@ export function CompanyDetailPage() {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['company', id],
-    queryFn: () => api<{ company: Company; documents: CompanyDocument[] }>(`/companies/${id}`),
+    queryFn: () => api<{ company: Company; contacts: Contacts; documents: CompanyDocument[] }>(`/companies/${id}`),
   });
 
   const trash = useMutation({
@@ -99,10 +100,11 @@ export function CompanyDetailPage() {
                 <Field label="Primary contact" value={company.primary_contact} />
                 <Field label="Phone" value={company.phone} />
                 <Field label="Email" value={company.email} />
-                <Field label="Address" value={[company.address_line, company.city, company.country].filter(Boolean).join(', ')} />
+                <Field label="Address" value={[company.address_line, company.state, company.city, company.country].filter(Boolean).join(', ')} />
                 <Field label="Created" value={formatTimestamp(company.created_at)} />
                 <Field label="Last updated" value={formatTimestamp(company.updated_at)} />
               </SimpleGrid>
+              <ContactsList contacts={data.contacts} />
               {company.notes && (
                 <Stack mt="lg" gap={0}>
                   <Field label="Notes" value={company.notes} />

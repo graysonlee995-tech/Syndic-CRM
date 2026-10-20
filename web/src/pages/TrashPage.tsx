@@ -9,7 +9,7 @@ import type { TrashItem } from '../types';
 const KINDS: Record<TrashItem['kind'], { label: string; color: string; purgeNote: string }> = {
   trip: { label: 'Trip', color: 'blue', purgeNote: 'its bookings, tickets and documents' },
   company: { label: 'Company', color: 'grape', purgeNote: 'the company record (its travellers and trips are kept, without a company)' },
-  client: { label: 'Traveller', color: 'teal', purgeNote: 'their documents, scans and trip bookings' },
+  client: { label: 'Traveller', color: 'gray', purgeNote: 'their documents, scans and trip bookings' },
 };
 
 function invalidateAll() {

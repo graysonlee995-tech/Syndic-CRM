@@ -81,5 +81,5 @@ export function notifyError(err: unknown) {
 }
 
 export function notifySuccess(message: string) {
-  notifications.show({ color: 'teal', message });
+  notifications.show({ message });
 }

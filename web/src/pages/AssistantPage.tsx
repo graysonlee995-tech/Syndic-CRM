@@ -218,7 +218,7 @@ export function AssistantPage() {
     <Stack h="calc(100dvh - 56px - 2 * var(--mantine-spacing-lg))" gap="sm" maw={1000}>
       <Group justify="space-between">
         <Group gap="xs">
-          <IconSparkles size={24} color="var(--mantine-color-teal-6)" />
+          <IconSparkles size={24} color="var(--mantine-primary-color-filled)" />
           <Title order={2}>Assistant</Title>
         </Group>
         <Button
@@ -260,7 +260,7 @@ export function AssistantPage() {
                   if (typeof m.content !== 'string') return null; // tool results are shown on the calls themselves
                   return (
                     <Group key={i} justify="flex-end">
-                      <Paper bg="teal.7" c="white" px="md" py="xs" radius="lg" maw="80%">
+                      <Paper bg="var(--mantine-primary-color-filled)" c="var(--mantine-primary-color-contrast)" px="md" py="xs" radius="lg" maw="80%">
                         <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
                           {m.content}
                         </Text>
@@ -280,7 +280,7 @@ export function AssistantPage() {
                           <Group key={j} gap={6}>
                             <Badge
                               variant="light"
-                              color={!isChange ? 'gray' : !result ? 'yellow' : result.is_error ? 'red' : 'teal'}
+                              color={!isChange ? 'gray' : !result ? 'yellow' : result.is_error ? 'red' : 'mono'}
                               leftSection={!isChange ? <IconSearch size={11} /> : result && !result.is_error ? <IconCheck size={11} /> : undefined}
                               style={{ textTransform: 'none' }}
                             >
@@ -308,10 +308,10 @@ export function AssistantPage() {
                           <Text size="sm">{p.summary}</Text>
                         </div>
                         {p.id in decisions ? (
-                          <Badge color={decisions[p.id] ? 'teal' : 'gray'}>{decisions[p.id] ? 'Approved' : 'Declined'}</Badge>
+                          <Badge color={decisions[p.id] ? 'mono' : 'gray'}>{decisions[p.id] ? 'Approved' : 'Declined'}</Badge>
                         ) : (
                           <Group gap="xs" wrap="nowrap">
-                            <Button size="xs" color="teal" leftSection={<IconCheck size={14} />} onClick={() => decide(p.id, true)}>
+                            <Button size="xs" color="mono" leftSection={<IconCheck size={14} />} onClick={() => decide(p.id, true)}>
                               Approve
                             </Button>
                             <Button size="xs" variant="default" leftSection={<IconX size={14} />} onClick={() => decide(p.id, false)}>

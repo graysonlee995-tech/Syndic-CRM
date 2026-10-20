@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
+import ExcelJS from 'exceljs';
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -372,5 +373,138 @@ describe('trips, companies and travellers', () => {
     expect(history.map((e: { action: string }) => e.action)).toEqual(
       expect.arrayContaining(['trip_created', 'trip_updated', 'trip_ticket_resolved', 'trip_restored']),
     );
+  });
+});
+
+describe('extra phone numbers and addresses', () => {
+  it('saves any number of them for a company, finds the company by them, and keeps them when not sent', async () => {
+    const staff = await signIn('staff@test.com');
+    const created = await staff.post('/api/companies').send({
+      name: 'Multi Office Travels',
+      phone: '021-1111111',
+      phones: [
+        { label: 'WhatsApp', number: '+92 333 7654321' },
+        { label: 'Fax', number: '' }, // empty rows are ignored
+        { label: 'Office', number: '042-2222222' },
+      ],
+      addresses: [{ label: 'Branch', address_line: '5 Mall Road', city: 'Lahore', country: 'Pakistan' }],
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.company.id;
+
+    const profile = (await staff.get(`/api/companies/${id}`)).body;
+    expect(profile.contacts.phones.map((p: { label: string }) => p.label)).toEqual(['WhatsApp', 'Office']);
+    expect(profile.contacts.addresses[0]).toMatchObject({ label: 'Branch', city: 'Lahore' });
+
+    const byPhone = (await staff.get('/api/companies').query({ q: '7654321' })).body.companies;
+    expect(byPhone.map((c: { id: number }) => c.id)).toEqual([id]);
+    expect((await staff.get('/api/companies').query({ q: 'Mall Road' })).body.total).toBe(1);
+
+    // An update without phones/addresses (e.g. from the assistant) leaves them alone.
+    await staff.put(`/api/companies/${id}`).send({ name: 'Multi Office Travels Ltd' });
+    expect((await staff.get(`/api/companies/${id}`)).body.contacts.phones).toHaveLength(2);
+    // Sending empty lists removes them.
+    await staff.put(`/api/companies/${id}`).send({ name: 'Multi Office Travels Ltd', phones: [], addresses: [] });
+    expect((await staff.get(`/api/companies/${id}`)).body.contacts).toEqual({ phones: [], addresses: [] });
+  });
+
+  it('saves them for a traveller and makes them searchable', async () => {
+    const staff = await signIn('staff@test.com');
+    const created = await staff.post('/api/travellers').send({
+      first_name: 'Zara',
+      last_name: 'Malik',
+      phones: [{ label: 'Home', number: '051-9876543' }],
+      addresses: [{ label: 'Home', address_line: 'House 7, F-8', city: 'Islamabad', country: null }],
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.client.id;
+    for (const q of ['9876543', '0519876543', 'islamabad']) {
+      const found = (await staff.get('/api/travellers').query({ q })).body.clients.map((c: { id: number }) => c.id);
+      expect(found).toContain(id);
+    }
+    expect((await staff.get(`/api/travellers/${id}`)).body.contacts.addresses[0]).toMatchObject({ city: 'Islamabad' });
+  });
+});
+
+describe('Excel export', () => {
+  const binary = (res: request.Response, cb: (err: Error | null, body: Buffer) => void) => {
+    const stream = res as unknown as NodeJS.ReadableStream;
+    const chunks: Buffer[] = [];
+    stream.on('data', (c: Buffer) => chunks.push(c));
+    stream.on('end', () => cb(null, Buffer.concat(chunks)));
+  };
+  /** Downloads an export and returns each sheet as rows of { header: value }. */
+  async function download(agent: request.Agent, url: string, query: Record<string, string> = {}) {
+    const res = await agent.get(url).query(query).buffer(true).parse(binary);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('spreadsheetml');
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(res.body as unknown as Parameters<typeof book.xlsx.load>[0]);
+    const sheets: Record<string, Record<string, unknown>[]> = {};
+    book.eachSheet((ws) => {
+      const headers = (ws.getRow(1).values as unknown[]).slice(1).map(String);
+      const rows: Record<string, unknown>[] = [];
+      ws.eachRow((row, n) => {
+        if (n === 1) return;
+        const values = (row.values as unknown[]).slice(1);
+        rows.push(Object.fromEntries(headers.map((h, i) => [h, values[i]])));
+      });
+      sheets[ws.name] = rows;
+    });
+    return sheets;
+  }
+
+  it('exports only the trips matching the filters, with their itinerary', async () => {
+    const staff = await signIn('staff@test.com');
+    const sheets = await download(staff, '/api/trips/export', { q: 'Europe Business' });
+    expect(sheets.Trips.length).toBeGreaterThan(0);
+    for (const t of sheets.Trips) expect(String(t['Trip name'])).toContain('Europe Business');
+    expect(sheets.Itinerary.map((i) => i['GDS PNR'])).toContain('ABC123');
+  });
+
+  it('exports filtered travellers and companies with their extra phones', async () => {
+    const staff = await signIn('staff@test.com');
+    const travellers = await download(staff, '/api/travellers/export', { q: 'zara malik' });
+    expect(travellers.Travellers).toEqual([expect.objectContaining({ 'First name': 'Zara', 'Extra phones': 'Home: 051-9876543' })]);
+    const companies = await download(staff, '/api/companies/export', { q: 'ABC Corporation' });
+    expect(companies.Companies.map((c) => c['Company name'])).toEqual(['ABC Corporation']);
+  });
+});
+
+describe('addresses: state and country list', () => {
+  it('only accepts countries from the list, spelled as the list spells them', async () => {
+    const staff = await signIn('staff@test.com');
+    const bad = await staff.post('/api/travellers').send({ first_name: 'No', last_name: 'Where', country: 'Atlantis' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toContain('not in the country list');
+    const badExtra = await staff.post('/api/companies').send({ name: 'Bad Extra Ltd', addresses: [{ city: 'X', country: 'Narnia' }] });
+    expect(badExtra.status).toBe(400);
+
+    const ok = await staff.post('/api/travellers').send({
+      first_name: 'Sana',
+      last_name: 'Iqbal',
+      address_line: 'Street 4',
+      state: 'Punjab',
+      city: 'Lahore',
+      country: 'pakistan',
+      addresses: [{ label: 'Work', state: 'Dubai', city: 'Dubai', country: 'uae' }],
+    });
+    expect(ok.status).toBe(201);
+    expect(ok.body.client).toMatchObject({ state: 'Punjab', country: 'Pakistan' });
+    const profile = (await staff.get(`/api/travellers/${ok.body.client.id}`)).body;
+    expect(profile.contacts.addresses[0]).toMatchObject({ state: 'Dubai', country: 'United Arab Emirates' });
+    // State is searchable.
+    expect((await staff.get('/api/travellers').query({ q: 'punjab iqbal' })).body.total).toBe(1);
+  });
+
+  it('saves a company state and accepts every country on the list', async () => {
+    const staff = await signIn('staff@test.com');
+    const res = await staff.post('/api/companies').send({ name: 'Ivory Travel', state: 'Abidjan', country: "Côte d'Ivoire" });
+    expect(res.status).toBe(201);
+    expect(res.body.company).toMatchObject({ state: 'Abidjan', country: "Côte d'Ivoire" });
+    expect((await staff.get('/api/companies').query({ q: 'abidjan' })).body.total).toBe(1);
+    // An extra address may be just a state.
+    const stateOnly = await staff.post('/api/companies').send({ name: 'State Only Ltd', addresses: [{ label: 'Region', state: 'Sindh' }] });
+    expect(stateOnly.status).toBe(201);
   });
 });

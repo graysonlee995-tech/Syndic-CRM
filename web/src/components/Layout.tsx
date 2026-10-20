@@ -19,6 +19,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { api, queryClient } from '../api';
 import type { User } from '../types';
 import { ErrorBoundary } from './ErrorBoundary';
+import { ThemeToggle } from './ThemeSwitch';
 
 /** The assistant, then the three primary modules in this order. */
 const MAIN_LINKS = [
@@ -66,14 +67,16 @@ export function Layout({ user }: { user: User }) {
         <Group h="100%" px="md" justify="space-between">
           <Group gap="xs">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" aria-label="Toggle navigation" />
-            <IconPlane size={22} color="var(--mantine-color-teal-6)" />
+            <IconPlane size={22} color="var(--mantine-primary-color-filled)" />
             <Text fw={700}>Syndic CRM</Text>
           </Group>
+          <Group gap={4}>
+          <ThemeToggle />
           <Menu position="bottom-end" width={200}>
             <Menu.Target>
               <UnstyledButton aria-label="Account menu">
                 <Group gap={8}>
-                  <Avatar size="sm" color="teal" radius="xl">
+                  <Avatar size="sm" color="mono" radius="xl">
                     {user.name.slice(0, 1).toUpperCase()}
                   </Avatar>
                   <Text size="sm" visibleFrom="xs">
@@ -93,6 +96,7 @@ export function Layout({ user }: { user: User }) {
               </Menu.Item>
             </Menu.Dropdown>
           </Menu>
+          </Group>
         </Group>
       </AppShell.Header>
 
