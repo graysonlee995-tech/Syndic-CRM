@@ -4,6 +4,7 @@ import { IconPlus } from '@tabler/icons-react';
 import type { TravellerOption } from '../types';
 import { ClientForm } from './ClientForm';
 import { useTravellerOptions } from './ListKit';
+import { useCan } from '../permissions';
 
 interface Props {
   /** Selected traveller ids as strings. */
@@ -22,6 +23,7 @@ const fullName = (t: { first_name: string; last_name: string }) => `${t.first_na
  */
 export function TravellerPicker({ value, onChange, companyId }: Props) {
   const options = useTravellerOptions();
+  const mayAdd = useCan()('travellers', 'add');
   const [search, setSearch] = useState('');
   // The box clears its text when it loses focus (e.g. on clicking Add), so keep the last thing typed.
   const [typed, setTyped] = useState('');
@@ -63,7 +65,7 @@ export function TravellerPicker({ value, onChange, companyId }: Props) {
           style={{ flex: 1 }}
         />
         <Tooltip label="Add a new traveller without leaving this page">
-          <Button variant="default" leftSection={<IconPlus size={14} />} onClick={() => setAdding(true)}>
+          <Button variant="default" leftSection={<IconPlus size={14} />} display={mayAdd ? undefined : 'none'} onClick={() => setAdding(true)}>
             Add
           </Button>
         </Tooltip>

@@ -3,9 +3,10 @@ import { ActionIcon, Anchor, Badge, Button, Group, Menu, Modal, Stack, Table, Te
 import { IconArrowBackUp, IconDots, IconTrash } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { api, notifyError, notifySuccess, queryClient, useMe } from '../api';
+import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { formatDate, formatTimestamp, labelOf } from '../format';
 import { CREDIT_STATUSES, type OpenCredit } from '../types';
+import { useCan } from '../permissions';
 
 export const CREDIT_COLORS: Record<string, string> = { open: 'orange', used: 'gray', refunded: 'grape', expired: 'red' };
 
@@ -13,7 +14,7 @@ const when = (date: string | null, time: string | null) => (date ? `${formatDate
 
 /** Rows of open credits; `showTrip` / `showCompany` hide columns that a trip page already makes obvious. */
 export function OpenCreditsTable({ credits, showTrip = true, showCompany = true }: { credits: OpenCredit[]; showTrip?: boolean; showCompany?: boolean }) {
-  const me = useMe();
+  const can = useCan();
   const [changing, setChanging] = useState<{ credit: OpenCredit; status: string } | null>(null);
   const [notes, setNotes] = useState('');
 
@@ -156,7 +157,7 @@ export function OpenCreditsTable({ credits, showTrip = true, showCompany = true 
                             {s.value === 'open' ? 'Open again' : `Mark ${s.label.toLowerCase()}`}
                           </Menu.Item>
                         ))}
-                        {me.data?.role === 'admin' && (
+                        {can('open_credits', 'delete') && (
                           <>
                             <Menu.Divider />
                             <Menu.Item
@@ -177,7 +178,7 @@ export function OpenCreditsTable({ credits, showTrip = true, showCompany = true 
                         )}
                       </Menu.Dropdown>
                     </Menu>
-                    {me.data?.role === 'admin' && (
+                    {can('open_credits', 'delete') && (
                       <Tooltip label="Delete (entered by mistake)">
                         <ActionIcon
                           variant="subtle"

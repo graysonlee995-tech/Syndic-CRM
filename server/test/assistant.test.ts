@@ -3,9 +3,9 @@ import request from 'supertest';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // A scripted stand-in for Claude: each test queues the responses Claude would give.
-const { create, retrieve, constructed } = vi.hoisted(() => {
+const { create, retrieve, upload, constructed } = vi.hoisted(() => {
   process.env.ANTHROPIC_API_KEY = 'sk-ant-api03-' + 'e'.repeat(80) + 'ENVK';
-  return { create: vi.fn(), retrieve: vi.fn(), constructed: [] as { apiKey?: string }[] };
+  return { create: vi.fn(), retrieve: vi.fn(), upload: vi.fn(), constructed: [] as { apiKey?: string }[] };
 });
 vi.mock('@anthropic-ai/sdk', () => {
   class APIError extends Error {
@@ -18,13 +18,16 @@ vi.mock('@anthropic-ai/sdk', () => {
     static BadRequestError = class extends APIError {};
     static PermissionDeniedError = class extends APIError {};
     static NotFoundError = class extends APIError {};
-    beta = { messages: { create } };
+    // The route streams; the stand-in hands back the queued reply as the final message.
+    beta = { messages: { create, stream: (params: unknown) => ({ finalMessage: () => create(params) }) } };
     models = { retrieve };
+    files = { upload };
     constructor(options: { apiKey?: string } = {}) {
       constructed.push(options);
     }
   }
-  return { default: Anthropic };
+  const toFile = async (data: Buffer, name: string, options: { type: string }) => ({ data, name, type: options.type });
+  return { default: Anthropic, toFile };
 });
 
 const { createApp } = await import('../src/app.js');
@@ -66,6 +69,7 @@ beforeAll(async () => {
 beforeEach(() => {
   create.mockReset();
   retrieve.mockReset();
+  upload.mockReset();
 });
 
 describe('assistant', () => {
@@ -88,12 +92,12 @@ describe('assistant', () => {
 
   it('waits for approval before creating a trip, then creates it', async () => {
     create.mockResolvedValueOnce(
-      reply([toolUse('w1', 'create_trip', { ...tripInput, traveller_ids: [travellerId] })], 'tool_use'),
+      reply([toolUse('w1', 'create_trips', { trips: [{ ...tripInput, traveller_ids: [travellerId] }] })], 'tool_use'),
     );
     const agent = await signIn();
     const first = await agent.post('/api/assistant/chat').send({ messages: [{ role: 'user', content: 'Book Hina to Lahore' }] });
-    expect(first.body.pending).toEqual([expect.objectContaining({ id: 'w1', name: 'create_trip' })]);
-    expect(first.body.pending[0].summary).toContain('Create trip "Lahore Conference"');
+    expect(first.body.pending).toEqual([expect.objectContaining({ id: 'w1', name: 'create_trips' })]);
+    expect(first.body.pending[0].preview.rows).toEqual([{ cells: ['Lahore Conference', '2027-01-10', '1 item(s)', '1'] }]);
     expect((await searchTrips({ q: 'Lahore Conference', filter: 'all', companyId: null, travellerId: null, sort: null, dir: 'asc', today: '2026-01-01', limit: 5, offset: 0 })).total).toBe(0);
 
     create.mockResolvedValueOnce(reply([text('Done: the trip is created.')]));
@@ -106,7 +110,7 @@ describe('assistant', () => {
   });
 
   it('changes nothing when the employee declines', async () => {
-    create.mockResolvedValueOnce(reply([toolUse('w2', 'create_company', { name: 'Declined Ltd' })], 'tool_use'));
+    create.mockResolvedValueOnce(reply([toolUse('w2', 'create_companies', { companies: [{ name: 'Declined Ltd' }] })], 'tool_use'));
     const agent = await signIn();
     const first = await agent.post('/api/assistant/chat').send({ messages: [{ role: 'user', content: 'Add Declined Ltd' }] });
     create.mockResolvedValueOnce(reply([text('Okay, I did not create it.')]));
@@ -130,6 +134,81 @@ describe('assistant', () => {
     const sent = JSON.stringify(create.mock.calls[1][0].messages);
     expect(sent).toContain('2030-05-01');
     expect(sent).not.toContain('ZX9988776');
+  });
+
+  it('adds a whole sheet of travellers in one approved action, with a company from the same batch, skipping duplicates', async () => {
+    const rows = [
+      { first_name: 'ali', last_name: 'khan', date_of_birth: '1990-02-03', nationality: 'Pakistani', company_name: 'Sheet Travels', documents: [{ type: 'passport', document_number: 'AB1', expiry_date: '2031-01-01' }], sabre_entries: ['-KHAN/ALI MR'] },
+      { first_name: 'Hina', last_name: 'Raza' }, // already in the CRM
+      { first_name: 'No', last_name: 'Company', company_name: 'Nowhere Ltd' },
+    ];
+    create.mockResolvedValueOnce(
+      reply([toolUse('c1', 'create_companies', { companies: [{ name: 'Sheet Travels', city: 'Karachi' }] }), toolUse('c2', 'create_travellers', { travellers: rows })], 'tool_use'),
+    );
+    const agent = await signIn();
+    const first = await agent.post('/api/assistant/chat').send({ messages: [{ role: 'user', content: 'Add everyone in the sheet' }] });
+    const preview = first.body.pending.find((p: { id: string }) => p.id === 'c2').preview;
+    expect(preview.rows.map((r: { cells: string[]; problem?: string }) => [r.cells[0], r.problem ?? 'ok'])).toEqual([
+      ['ALI KHAN', 'ok'],
+      ['HINA RAZA', expect.stringContaining('looks like existing traveller')],
+      ['NO COMPANY', expect.stringContaining('company "Nowhere Ltd" not found')],
+    ]);
+    expect(preview.rows[0].cells[3]).toBe('SHEET TRAVELS (new)');
+
+    create.mockResolvedValueOnce(reply([text('Added 1 traveller; 2 rows skipped.')]));
+    await agent.post('/api/assistant/chat').send({ messages: first.body.messages, decisions: { c1: true, c2: true } });
+    const result = JSON.parse(resultFor('c2').content);
+    expect(result).toMatchObject({ created: 1, skipped: [expect.objectContaining({ row: 2 }), expect.objectContaining({ row: 3 })] });
+    const ali = (await agent.get(`/api/travellers/${result.travellers[0].id}`)).body;
+    expect(ali.client).toMatchObject({ first_name: 'ALI', nationality: 'PK - Pakistan', company_name: 'SHEET TRAVELS', sabre_entry: '-KHAN/ALI MR' });
+    expect(ali.documents).toEqual([expect.objectContaining({ type: 'passport', expiry_date: '2031-01-01' })]);
+  });
+
+  it('edits travellers and only moves records to the Trash with Delete permission', async () => {
+    create.mockResolvedValueOnce(
+      reply([toolUse('u1', 'update_travellers', { updates: [{ traveller_id: travellerId, phone: '+1 212 555 0123', add_sabre_entries: ['-RAZA/HINA MS'] }] })], 'tool_use'),
+    );
+    const agent = await signIn();
+    const first = await agent.post('/api/assistant/chat').send({ messages: [{ role: 'user', content: 'Update Hina' }] });
+    expect(first.body.pending[0].preview.rows[0].cells[2]).toBe('phone, sabre entries');
+    create.mockResolvedValueOnce(reply([text('Updated.')]));
+    await agent.post('/api/assistant/chat').send({ messages: first.body.messages, decisions: { u1: true } });
+    expect((await agent.get(`/api/travellers/${travellerId}`)).body.client).toMatchObject({ phone: '+1 212 555 0123', sabre_entry: '-RAZA/HINA MS' });
+
+    const trash = { records: [{ kind: 'traveller', id: travellerId }] };
+    create.mockResolvedValueOnce(reply([toolUse('x1', 'move_to_trash', trash)], 'tool_use'));
+    const staffTry = await agent.post('/api/assistant/chat').send({ messages: [{ role: 'user', content: 'Trash Hina' }] });
+    expect(staffTry.body.pending[0].preview.rows[0].problem).toContain("don't have permission");
+    create.mockResolvedValueOnce(reply([text('Only an admin can do that.')]));
+    await agent.post('/api/assistant/chat').send({ messages: staffTry.body.messages, decisions: { x1: true } });
+    expect((await agent.get(`/api/travellers/${travellerId}`)).status).toBe(200);
+  });
+
+  it('turns an attached Excel sheet into text for Claude', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const book = new ExcelJS.Workbook();
+    const ws = book.addWorksheet('Passengers');
+    ws.addRow(['Given name', 'Last name', 'DOB']);
+    ws.addRow(['Sara', 'Ahmed', new Date(Date.UTC(1992, 9, 1))]);
+    const xlsx = Buffer.from(await book.xlsx.writeBuffer());
+    upload.mockResolvedValueOnce({ id: 'file_123' });
+    const agent = await signIn();
+    const res = await agent.post('/api/assistant/attachments').attach('file', xlsx, 'passengers.xlsx');
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ kind: 'sheet', name: 'passengers.xlsx', block: { type: 'document', source: { type: 'file', file_id: 'file_123' }, title: 'passengers.xlsx' } });
+    const sent = upload.mock.calls[0][0].file;
+    expect(sent.type).toBe('text/plain');
+    expect(sent.data.toString()).toContain('Given name,Last name,DOB\nSara,Ahmed,1992-10-01');
+    expect((await agent.post('/api/assistant/attachments').attach('file', Buffer.from('x'), 'old.xls')).status).toBe(400);
+  });
+
+  it('never runs a tool call from a reply that was cut off', async () => {
+    create.mockResolvedValueOnce(reply([toolUse('m1', 'create_companies', { companies: [{ name: 'Half' }] })], 'max_tokens'));
+    const agent = await signIn();
+    const res = await agent.post('/api/assistant/chat').send({ messages: [{ role: 'user', content: 'Add a huge sheet' }] });
+    expect(res.body.pending).toBeUndefined();
+    expect(res.body.notice).toContain('too long');
+    expect(res.body.messages.at(-1).role).toBe('user');
   });
 
   it('requires sign-in', async () => {

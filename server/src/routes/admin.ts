@@ -4,7 +4,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { audit, getSettings, isTimezone, listAudit, saveSettings } from '../db/repo.js';
-import { currentUser, SESSION_COOKIE, sessionCookieOptions } from '../auth/session.js';
+import { currentUser, requireRole, SESSION_COOKIE, sessionCookieOptions } from '../auth/session.js';
 import { backupProblem, exportDatabase, importDatabase, type Backup } from '../db/backup.js';
 import { mailStatus, removeSmtp, saveSmtp, savedSmtpSettings, sendMail, verifySmtp } from '../lib/mailer.js';
 import { runExpiryAlerts } from '../jobs/expiryAlerts.js';
@@ -14,16 +14,17 @@ import { listQcItems, saveQcItems } from '../db/quality.js';
 import { pagingSchema } from './schemas.js';
 import { keyStatus, removeAssistantKey, saveAssistantKey } from '../assistant/key.js';
 import { contentDisposition, HttpError } from '../lib/http.js';
+import { requirePermission } from '../auth/permissions.js';
 
-/** Settings and audit log. Mounted behind requireRole('admin'). */
+/** Settings and audit log; each route checks the employee's permissions. */
 export const adminRouter = Router();
 
-adminRouter.get('/settings', async (_req, res) => {
+adminRouter.get('/settings', requirePermission('settings', 'view'), async (_req, res) => {
   res.json({ settings: await getSettings(), mailConfigured: (await mailStatus()).configured });
 });
 
 /** The CRM's time zone: what "today" is, when the daily checks run and how times are shown. */
-adminRouter.put('/timezone', async (req, res) => {
+adminRouter.put('/timezone', requirePermission('settings', 'edit'), async (req, res) => {
   const { timezone } = z
     .object({ timezone: z.string().trim().min(1).max(100).refine(isTimezone, 'is not a known time zone') })
     .parse(req.body);
@@ -33,7 +34,7 @@ adminRouter.put('/timezone', async (req, res) => {
   res.json({ timezone });
 });
 
-adminRouter.put('/settings', async (req, res) => {
+adminRouter.put('/settings', requirePermission('settings', 'edit'), async (req, res) => {
   const settings = z
     .object({
       alertThresholds: z
@@ -51,7 +52,7 @@ adminRouter.put('/settings', async (req, res) => {
   res.json({ settings });
 });
 
-adminRouter.post('/settings/test-email', async (req, res) => {
+adminRouter.post('/settings/test-email', requirePermission('settings', 'edit'), async (req, res) => {
   const user = currentUser(req);
   const { configured } = await mailStatus();
   try {
@@ -71,7 +72,7 @@ adminRouter.post('/settings/test-email', async (req, res) => {
   });
 });
 
-adminRouter.post('/settings/run-alerts', async (req, res) => {
+adminRouter.post('/settings/run-alerts', requirePermission('settings', 'edit'), async (req, res) => {
   const expiry = await runExpiryAlerts();
   const birthdays = await runBirthdayReminders();
   const message = `${expiry.message}. ${birthdays.message}.`;
@@ -79,7 +80,7 @@ adminRouter.post('/settings/run-alerts', async (req, res) => {
   res.json({ expiry, birthdays, message });
 });
 
-adminRouter.get('/audit', async (req, res) => {
+adminRouter.get('/audit', requirePermission('audit', 'view'), async (req, res) => {
   const { page, pageSize } = pagingSchema.parse(req.query);
   const { rows, total } = await listAudit(pageSize, (page - 1) * pageSize);
   res.json({ entries: rows, total, page, pageSize });
@@ -88,7 +89,7 @@ adminRouter.get('/audit', async (req, res) => {
 // ---------------------------------------------------------------- quality check items
 
 /** The whole checklist in its new order; items left out are switched off (answers on trips are kept). */
-adminRouter.put('/qc-items', async (req, res) => {
+adminRouter.put('/qc-items', requirePermission('settings', 'edit'), async (req, res) => {
   const { items } = z
     .object({
       items: z
@@ -104,11 +105,11 @@ adminRouter.put('/qc-items', async (req, res) => {
 // ---------------------------------------------------------------- AI assistant key
 // The key itself is never sent back; only whether one is set, where from, and its last 4 characters.
 
-adminRouter.get('/assistant-key', async (_req, res) => {
+adminRouter.get('/assistant-key', requirePermission('settings', 'view'), async (_req, res) => {
   res.json({ ...(await keyStatus()), model: config.assistant.model });
 });
 
-adminRouter.put('/assistant-key', async (req, res) => {
+adminRouter.put('/assistant-key', requirePermission('settings', 'edit'), async (req, res) => {
   const { apiKey } = z.object({ apiKey: z.string().trim().min(1, 'Paste the API key').max(500) }).parse(req.body);
   try {
     await saveAssistantKey(apiKey, config.assistant.model);
@@ -119,7 +120,7 @@ adminRouter.put('/assistant-key', async (req, res) => {
   res.json({ ...(await keyStatus()), model: config.assistant.model });
 });
 
-adminRouter.delete('/assistant-key', async (req, res) => {
+adminRouter.delete('/assistant-key', requirePermission('settings', 'edit'), async (req, res) => {
   await removeAssistantKey();
   await audit(currentUser(req), 'assistant_key_removed', 'settings', null);
   res.json({ ...(await keyStatus()), model: config.assistant.model });
@@ -137,11 +138,11 @@ const smtpSchema = z.object({
   from: z.string().trim().min(1, 'is required').max(300),
 });
 
-adminRouter.get('/email', async (_req, res) => {
+adminRouter.get('/email', requirePermission('settings', 'view'), async (_req, res) => {
   res.json(await mailStatus());
 });
 
-adminRouter.put('/email', async (req, res) => {
+adminRouter.put('/email', requirePermission('settings', 'edit'), async (req, res) => {
   const input = smtpSchema.parse(req.body);
   // An empty password keeps the saved one (the form never receives it).
   const previous = await savedSmtpSettings();
@@ -158,7 +159,7 @@ adminRouter.put('/email', async (req, res) => {
   res.json(await mailStatus());
 });
 
-adminRouter.delete('/email', async (req, res) => {
+adminRouter.delete('/email', requirePermission('settings', 'edit'), async (req, res) => {
   await removeSmtp();
   await audit(currentUser(req), 'email_settings_removed', 'settings', null);
   res.json(await mailStatus());
@@ -166,7 +167,7 @@ adminRouter.delete('/email', async (req, res) => {
 
 // ---------------------------------------------------------------- database backup and import
 
-adminRouter.get('/backup', async (req, res) => {
+adminRouter.get('/backup', requireRole('admin'), async (req, res) => {
   const backup = await exportDatabase();
   const body = gzipSync(JSON.stringify(backup));
   await audit(currentUser(req), 'database_backup_downloaded', 'settings', null, `${(body.length / 1024).toFixed(0)} KB`);
@@ -185,7 +186,7 @@ const backupUpload = multer({
 });
 
 /** Replaces ALL data with the uploaded backup. Everyone, including the admin doing it, is signed out. */
-adminRouter.post('/restore', backupUpload.single('file'), async (req, res) => {
+adminRouter.post('/restore', requireRole('admin'), backupUpload.single('file'), async (req, res) => {
   const { confirm } = z.object({ confirm: z.string().optional() }).parse(req.body);
   if (confirm !== 'RESTORE') throw new HttpError(400, 'Type RESTORE to confirm that all current data will be replaced.');
   if (!req.file) throw new HttpError(400, 'Choose the backup file to import.');

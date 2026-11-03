@@ -28,7 +28,7 @@ import {
   type BookingKind,
   type TripInput,
 } from '../db/trips.js';
-import { currentUser, requireRole } from '../auth/session.js';
+import { currentUser } from '../auth/session.js';
 import { todayInTz } from '../lib/dates.js';
 import { readFile, removeFile } from '../lib/files.js';
 import { contentDisposition, HttpError, parseId } from '../lib/http.js';
@@ -36,6 +36,7 @@ import { bookingSchemas, idList, optId, pagingSchema, resolutionSchema, sortSche
 import { storeUpload, upload } from './uploads.js';
 import { getTripQc, QC_ANSWERS, resetQc, saveTripQc } from '../db/quality.js';
 import { EXPORT_LIMIT, exportFileName, sendWorkbook } from '../lib/excel.js';
+import { requirePermission } from '../auth/permissions.js';
 
 /** Trips and everything booked on them. Companies and travellers link to these same records. */
 export const tripsRouter = Router();
@@ -112,14 +113,14 @@ const searchFrom = (query: z.infer<typeof listSchema>, limit: number, offset: nu
     offset,
   });
 
-tripsRouter.get('/', async (req, res) => {
+tripsRouter.get('/', requirePermission('trips', 'view'), async (req, res) => {
   const query = listSchema.parse(req.query);
   const { rows, total } = await searchFrom(query, query.pageSize, (query.page - 1) * query.pageSize);
   res.json({ trips: rows, total, page: query.page, pageSize: query.pageSize });
 });
 
 /** The filtered list as an Excel file: one sheet of trips, one of their itinerary items. */
-tripsRouter.get('/export', async (req, res) => {
+tripsRouter.get('/export', requirePermission('trips', 'export'), async (req, res) => {
   const query = listSchema.parse(req.query);
   const { rows } = await searchFrom(query, EXPORT_LIMIT, 0);
   const byId = new Map(rows.map((t) => [t.id, t]));
@@ -170,7 +171,7 @@ tripsRouter.get('/export', async (req, res) => {
   ]);
 });
 
-tripsRouter.post('/', async (req, res) => {
+tripsRouter.post('/', requirePermission('trips', 'add'), async (req, res) => {
   const user = currentUser(req);
   const input = tripSchema.parse(req.body);
   if (!input.itinerary.length) throw new HttpError(400, 'itinerary: add at least one flight, train, hotel, car or other item with its date');
@@ -182,13 +183,13 @@ tripsRouter.post('/', async (req, res) => {
   res.status(201).json({ trip });
 });
 
-tripsRouter.get('/:id', async (req, res) => {
+tripsRouter.get('/:id', requirePermission('trips', 'view'), async (req, res) => {
   const { id } = await requireTrip(req.params.id);
   await audit(currentUser(req), 'trip_viewed', 'trip', id);
   res.json({ ...(await getTripDetail(id, today())), qc: await getTripQc(id, today()) });
 });
 
-tripsRouter.put('/:id', async (req, res) => {
+tripsRouter.put('/:id', requirePermission('trips', 'edit'), async (req, res) => {
   const { id } = await requireTrip(req.params.id);
   const input = tripSchema.parse(req.body);
   await assertLinks(input);
@@ -200,7 +201,7 @@ tripsRouter.put('/:id', async (req, res) => {
 });
 
 /** Moves the trip to the trash; it disappears from company and traveller views until restored. */
-tripsRouter.delete('/:id', requireRole('admin'), async (req, res) => {
+tripsRouter.delete('/:id', requirePermission('trips', 'delete'), async (req, res) => {
   const trip = await requireTrip(req.params.id);
   await moveToTrash('trip', trip.id);
   await logTrip(req, trip.id, 'trip_trashed', `${trip.reference} ${trip.name}`);
@@ -209,7 +210,7 @@ tripsRouter.delete('/:id', requireRole('admin'), async (req, res) => {
 
 // ---------------------------------------------------------------- flight tickets
 
-tripsRouter.post('/:id/flights/:flightId/tickets', async (req, res) => {
+tripsRouter.post('/:id/flights/:flightId/tickets', requirePermission('trips', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const flightId = parseId(req.params.flightId);
   if (!(await getBooking('flights', tripId, flightId))) throw new HttpError(404, 'Flight not found');
@@ -224,7 +225,7 @@ tripsRouter.post('/:id/flights/:flightId/tickets', async (req, res) => {
   res.status(201).json({ ticket: await getTicket(tripId, id) });
 });
 
-tripsRouter.put('/:id/tickets/:ticketId', async (req, res) => {
+tripsRouter.put('/:id/tickets/:ticketId', requirePermission('trips', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const ticket = await getTicket(tripId, parseId(req.params.ticketId));
   if (!ticket) throw new HttpError(404, 'Ticket not found');
@@ -236,7 +237,7 @@ tripsRouter.put('/:id/tickets/:ticketId', async (req, res) => {
   res.json({ ticket: await getTicket(tripId, ticket.id) });
 });
 
-tripsRouter.post('/:id/tickets/:ticketId/resolve', async (req, res) => {
+tripsRouter.post('/:id/tickets/:ticketId/resolve', requirePermission('trips', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const ticket = await getTicket(tripId, parseId(req.params.ticketId));
   if (!ticket) throw new HttpError(404, 'Ticket not found');
@@ -248,7 +249,7 @@ tripsRouter.post('/:id/tickets/:ticketId/resolve', async (req, res) => {
   res.json({ ticket: await getTicket(tripId, ticket.id) });
 });
 
-tripsRouter.delete('/:id/tickets/:ticketId', async (req, res) => {
+tripsRouter.delete('/:id/tickets/:ticketId', requirePermission('trips', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const ticket = await getTicket(tripId, parseId(req.params.ticketId));
   if (!ticket) throw new HttpError(404, 'Ticket not found');
@@ -260,7 +261,7 @@ tripsRouter.delete('/:id/tickets/:ticketId', async (req, res) => {
 
 // ---------------------------------------------------------------- trip documents
 
-tripsRouter.post('/:id/documents', upload.single('file'), async (req, res) => {
+tripsRouter.post('/:id/documents', requirePermission('trips', 'edit'), upload.single('file'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const { title } = z.object({ title: z.string().trim().max(200).optional().default('') }).parse(req.body);
   const file = await storeUpload(req.file);
@@ -275,7 +276,7 @@ tripsRouter.post('/:id/documents', upload.single('file'), async (req, res) => {
   }
 });
 
-tripsRouter.get('/:id/documents/:docId/file', async (req, res) => {
+tripsRouter.get('/:id/documents/:docId/file', requirePermission('trips', 'view'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const doc = await getTripDocument(tripId, parseId(req.params.docId));
   if (!doc) throw new HttpError(404, 'Document not found');
@@ -290,7 +291,7 @@ tripsRouter.get('/:id/documents/:docId/file', async (req, res) => {
   res.send(body);
 });
 
-tripsRouter.delete('/:id/documents/:docId', async (req, res) => {
+tripsRouter.delete('/:id/documents/:docId', requirePermission('trips', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const doc = await getTripDocument(tripId, parseId(req.params.docId));
   if (!doc) throw new HttpError(404, 'Document not found');
@@ -308,7 +309,7 @@ const qcSchema = z.object({
     .max(200),
 });
 
-tripsRouter.put('/:id/qc', async (req, res) => {
+tripsRouter.put('/:id/qc', requirePermission('quality', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const { answers } = qcSchema.parse(req.body);
   const { passed, newlyPassed } = await saveTripQc(tripId, answers, currentUser(req).id);
@@ -334,7 +335,7 @@ async function parseBooking(kind: BookingKind, tripId: number, body: unknown) {
   return { data, travellerIds };
 }
 
-tripsRouter.post('/:id/:kind', async (req, res) => {
+tripsRouter.post('/:id/:kind', requirePermission('trips', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const kind = parseKind(req.params.kind);
   const { data, travellerIds } = await parseBooking(kind, tripId, req.body);
@@ -344,7 +345,7 @@ tripsRouter.post('/:id/:kind', async (req, res) => {
   res.status(201).json({ booking: await getBooking(kind, tripId, id) });
 });
 
-tripsRouter.put('/:id/:kind/:bookingId', async (req, res) => {
+tripsRouter.put('/:id/:kind/:bookingId', requirePermission('trips', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const kind = parseKind(req.params.kind);
   const bookingId = parseId(req.params.bookingId);
@@ -356,7 +357,7 @@ tripsRouter.put('/:id/:kind/:bookingId', async (req, res) => {
   res.json({ booking: await getBooking(kind, tripId, bookingId) });
 });
 
-tripsRouter.delete('/:id/:kind/:bookingId', async (req, res) => {
+tripsRouter.delete('/:id/:kind/:bookingId', requirePermission('trips', 'edit'), async (req, res) => {
   const { id: tripId } = await requireTrip(req.params.id);
   const kind = parseKind(req.params.kind);
   const bookingId = parseId(req.params.bookingId);

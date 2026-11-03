@@ -143,7 +143,7 @@ export function AccountPage() {
   return (
     <Stack maw={640}>
       <Title order={2}>My account</Title>
-      <Text>
+      <Text component="div">
         {user.name} · {user.email} · <Badge variant="light">{user.role}</Badge>
       </Text>
       <ChangePassword />

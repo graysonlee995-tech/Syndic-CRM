@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { column, insert, one, query, run, tx, value, type Param } from './index.js';
+import { effectivePermissions, type Permissions } from '../auth/permissions.js';
 import { compact, normalize } from '../lib/search.js';
 
 // ---------------------------------------------------------------- helpers
@@ -69,6 +70,8 @@ export interface UserRow {
   locked_until: string | null;
   created_at: string;
   last_login_at: string | null;
+  /** JSON (see auth/permissions.ts); null = the standard staff rights. Admins ignore it. */
+  permissions: string | null;
 }
 
 export interface PublicUser {
@@ -82,6 +85,8 @@ export interface PublicUser {
   locked: boolean;
   created_at: string;
   last_login_at: string | null;
+  /** What the user may do, per section (everything for admins). */
+  permissions: Permissions;
 }
 
 export function toPublicUser(u: UserRow): PublicUser {
@@ -96,6 +101,7 @@ export function toPublicUser(u: UserRow): PublicUser {
     locked: Boolean(u.locked_until && Date.parse(u.locked_until) > Date.now()),
     created_at: u.created_at,
     last_login_at: u.last_login_at,
+    permissions: effectivePermissions(u.role, u.permissions),
   };
 }
 
@@ -117,13 +123,16 @@ export function createUser(input: {
   passwordHash: string;
   role: Role;
   receivesAlerts?: boolean;
+  /** Staff only; omitted = the standard staff rights. */
+  permissions?: Permissions;
 }): Promise<number> {
-  return insert('INSERT INTO users (name, email, password_hash, role, receives_alerts) VALUES (?, ?, ?, ?, ?)', [
+  return insert('INSERT INTO users (name, email, password_hash, role, receives_alerts, permissions) VALUES (?, ?, ?, ?, ?, ?)', [
     input.name,
     input.email.trim(),
     input.passwordHash,
     input.role,
     input.receivesAlerts ? 1 : 0,
+    input.permissions ? JSON.stringify(input.permissions) : null,
   ]);
 }
 
@@ -139,6 +148,7 @@ export type UserPatch = Partial<
     | 'failed_logins'
     | 'locked_until'
     | 'last_login_at'
+    | 'permissions'
   > & { is_active: boolean; receives_alerts: boolean }
 >;
 
@@ -154,6 +164,7 @@ const USER_FIELDS = [
   'failed_logins',
   'locked_until',
   'last_login_at',
+  'permissions',
 ] as const;
 
 export function updateUser(id: number, patch: UserPatch): Promise<void> {

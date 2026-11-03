@@ -4,10 +4,11 @@ import { searchQc } from '../db/quality.js';
 import { countRecentTrips, countUpcomingTrips } from '../db/trips.js';
 import { upcomingBirthdays } from '../jobs/birthdays.js';
 import { addDays, daysBetween, todayInTz } from '../lib/dates.js';
+import { requirePermission } from '../auth/permissions.js';
 
 export const dashboardRouter = Router();
 
-dashboardRouter.get('/', async (_req, res) => {
+dashboardRouter.get('/', requirePermission('dashboard', 'view'), async (_req, res) => {
   const today = todayInTz(timezone());
   const documents = (await documentsExpiringBy(addDays(today, 30))).map((d) => ({
     ...d,

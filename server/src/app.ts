@@ -4,7 +4,8 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { config } from './config.js';
-import { requireAuth, requireRole } from './auth/session.js';
+import { requireAuth } from './auth/session.js';
+import { requirePermission } from './auth/permissions.js';
 import { errorHandler } from './lib/http.js';
 import { authRouter } from './routes/auth.js';
 import { clientsRouter } from './routes/clients.js';
@@ -100,10 +101,11 @@ export function createApp() {
   app.use('/api/documents', documentsRouter);
   app.use('/api/activity', activityRouter);
   app.use('/api/assistant', assistantRouter);
-  app.use('/api/trash', requireRole('admin'), trashRouter);
-  app.use('/api/users', requireRole('admin'), usersRouter);
-  app.use('/api/admin/logo', requireRole('admin'), adminLogoRouter);
-  app.use('/api/admin', requireRole('admin'), adminRouter);
+  // Each of these routers checks the employee's permissions route by route.
+  app.use('/api/trash', trashRouter);
+  app.use('/api/users', usersRouter);
+  app.use('/api/admin/logo', requirePermission('settings', 'edit'), adminLogoRouter);
+  app.use('/api/admin', adminRouter);
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Not found' });
   });

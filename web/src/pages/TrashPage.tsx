@@ -5,6 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { formatTimestamp } from '../format';
 import type { TrashItem } from '../types';
+import { useCan } from '../permissions';
 
 const KINDS: Record<TrashItem['kind'], { label: string; color: string; purgeNote: string }> = {
   trip: { label: 'Trip', color: 'blue', purgeNote: 'its bookings, tickets and documents' },
@@ -19,6 +20,7 @@ function invalidateAll() {
 }
 
 export function TrashPage() {
+  const can = useCan();
   const [filter, setFilter] = useState<'all' | TrashItem['kind']>('all');
   const { data, isLoading } = useQuery({ queryKey: ['trash'], queryFn: () => api<{ items: TrashItem[] }>('/trash') });
 
@@ -91,12 +93,13 @@ export function TrashPage() {
                     <Table.Td>{formatTimestamp(item.deleted_at)}</Table.Td>
                     <Table.Td>
                       <Group gap={4} justify="flex-end" wrap="nowrap">
-                        <Button size="xs" variant="light" leftSection={<IconRestore size={14} />} onClick={() => restore.mutate(item)}>
+                        <Button size="xs" variant="light" leftSection={<IconRestore size={14} />} display={can('trash', 'edit') ? undefined : 'none'} onClick={() => restore.mutate(item)}>
                           Restore
                         </Button>
                         <Button
                           size="xs"
                           color="red"
+                          display={can('trash', 'delete') ? undefined : 'none'}
                           variant="subtle"
                           leftSection={<IconTrashX size={14} />}
                           onClick={() => {

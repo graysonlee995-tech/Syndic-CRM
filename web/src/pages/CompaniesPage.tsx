@@ -7,8 +7,10 @@ import { api } from '../api';
 import { exportQuery, ListFooter, PAGE_SIZE, SortTh, stop, useListState } from '../components/ListKit';
 import { companyCode, formatTimestamp } from '../format';
 import type { CompanyListRow } from '../types';
+import { useCan } from '../permissions';
 
 export function CompaniesPage() {
+  const can = useCan();
   const navigate = useNavigate();
   const list = useListState(true);
   const q = list.get('q');
@@ -29,9 +31,11 @@ export function CompaniesPage() {
     <Stack>
       <Group justify="space-between">
         <Title order={2}>Companies</Title>
+        {can('companies', 'add') && (
         <Button component={Link} to="/companies/new" leftSection={<IconPlus size={16} />}>
           Add company
         </Button>
+        )}
       </Group>
 
       <Card withBorder>
@@ -102,7 +106,7 @@ export function CompaniesPage() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Edit">
-                          <ActionIcon variant="default" component={Link} to={`/companies/${c.id}/edit`} aria-label="Edit company">
+                          <ActionIcon variant="default" component={Link} to={`/companies/${c.id}/edit`} aria-label="Edit company" display={can('companies', 'edit') ? undefined : 'none'}>
                             <IconEdit size={16} />
                           </ActionIcon>
                         </Tooltip>
@@ -115,7 +119,7 @@ export function CompaniesPage() {
           </Table.ScrollContainer>
         )}
       </Card>
-      <ListFooter list={list} total={data?.total} noun="companies" exportHref={`/api/companies/export?${exportQuery(search)}`} />
+      <ListFooter list={list} total={data?.total} noun="companies" exportHref={can('companies', 'export') ? `/api/companies/export?${exportQuery(search)}` : undefined} />
     </Stack>
   );
 }

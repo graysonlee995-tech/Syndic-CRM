@@ -12,7 +12,7 @@ import {
   searchCompanies,
   updateCompany,
 } from '../db/companies.js';
-import { currentUser, requireRole } from '../auth/session.js';
+import { currentUser } from '../auth/session.js';
 import { todayInTz } from '../lib/dates.js';
 import { readFile, removeFile } from '../lib/files.js';
 import { contentDisposition, HttpError, parseId } from '../lib/http.js';
@@ -21,6 +21,7 @@ import { contactSummaries, listContacts, replaceContacts } from '../db/contacts.
 import { EXPORT_LIMIT, exportFileName, sendWorkbook } from '../lib/excel.js';
 import { tx } from '../db/index.js';
 import { storeUpload, upload } from './uploads.js';
+import { requirePermission, requireAnyPermission } from '../auth/permissions.js';
 
 /**
  * Companies. Their travellers and trips are listed through /api/travellers?companyId=
@@ -40,14 +41,14 @@ const listSchema = pagingSchema.merge(sortSchema).extend({ q: z.string().max(200
 const searchFrom = (query: z.infer<typeof listSchema>, limit: number, offset: number) =>
   searchCompanies({ q: query.q, sort: query.sort ?? null, dir: query.dir, today: todayInTz(timezone()), limit, offset });
 
-companiesRouter.get('/', async (req, res) => {
+companiesRouter.get('/', requirePermission('companies', 'view'), async (req, res) => {
   const query = listSchema.parse(req.query);
   const { rows, total } = await searchFrom(query, query.pageSize, (query.page - 1) * query.pageSize);
   res.json({ companies: rows, total, page: query.page, pageSize: query.pageSize });
 });
 
 /** The filtered list as an Excel file, including extra phones and addresses. */
-companiesRouter.get('/export', async (req, res) => {
+companiesRouter.get('/export', requirePermission('companies', 'export'), async (req, res) => {
   const query = listSchema.parse(req.query);
   const { rows } = await searchFrom(query, EXPORT_LIMIT, 0);
   const extras = await contactSummaries('company', rows.map((c) => c.id));
@@ -85,11 +86,11 @@ companiesRouter.get('/export', async (req, res) => {
   ]);
 });
 
-companiesRouter.get('/options', async (_req, res) => {
+companiesRouter.get('/options', requireAnyPermission(['trips', 'view'], ['travellers', 'view'], ['companies', 'view'], ['open_credits', 'view'], ['quality', 'view']), async (_req, res) => {
   res.json({ companies: await listCompanyOptions() });
 });
 
-companiesRouter.post('/', async (req, res) => {
+companiesRouter.post('/', requirePermission('companies', 'add'), async (req, res) => {
   const user = currentUser(req);
   const input = companySchema.parse(req.body);
   const { emails, phones, addresses } = contactsSchema.parse(req.body);
@@ -102,7 +103,7 @@ companiesRouter.post('/', async (req, res) => {
   res.status(201).json({ company: await getCompany(id) });
 });
 
-companiesRouter.get('/:id', async (req, res) => {
+companiesRouter.get('/:id', requirePermission('companies', 'view'), async (req, res) => {
   const company = await requireCompany(req.params.id);
   await audit(currentUser(req), 'company_viewed', 'company', company.id);
   res.json({
@@ -112,7 +113,7 @@ companiesRouter.get('/:id', async (req, res) => {
   });
 });
 
-companiesRouter.put('/:id', async (req, res) => {
+companiesRouter.put('/:id', requirePermission('companies', 'edit'), async (req, res) => {
   const { id } = await requireCompany(req.params.id);
   const input = companySchema.parse(req.body);
   const { emails, phones, addresses } = contactsSchema.parse(req.body);
@@ -125,7 +126,7 @@ companiesRouter.put('/:id', async (req, res) => {
 });
 
 /** Moves the company to the trash. Its travellers and trips stay linked and can still be opened. */
-companiesRouter.delete('/:id', requireRole('admin'), async (req, res) => {
+companiesRouter.delete('/:id', requirePermission('companies', 'delete'), async (req, res) => {
   const company = await requireCompany(req.params.id);
   await moveToTrash('company', company.id);
   await audit(currentUser(req), 'company_trashed', 'company', company.id, company.name);
@@ -134,7 +135,7 @@ companiesRouter.delete('/:id', requireRole('admin'), async (req, res) => {
 
 // ---------------------------------------------------------------- company documents (optional)
 
-companiesRouter.post('/:id/documents', upload.single('file'), async (req, res) => {
+companiesRouter.post('/:id/documents', requirePermission('companies', 'edit'), upload.single('file'), async (req, res) => {
   const { id: companyId } = await requireCompany(req.params.id);
   const { title } = z.object({ title: z.string().trim().max(200).optional().default('') }).parse(req.body);
   const file = await storeUpload(req.file);
@@ -149,7 +150,7 @@ companiesRouter.post('/:id/documents', upload.single('file'), async (req, res) =
   }
 });
 
-companiesRouter.get('/:id/documents/:docId/file', async (req, res) => {
+companiesRouter.get('/:id/documents/:docId/file', requirePermission('companies', 'view'), async (req, res) => {
   const { id: companyId } = await requireCompany(req.params.id);
   const doc = await getCompanyDocument(companyId, parseId(req.params.docId));
   if (!doc) throw new HttpError(404, 'Document not found');
@@ -164,7 +165,7 @@ companiesRouter.get('/:id/documents/:docId/file', async (req, res) => {
   res.send(body);
 });
 
-companiesRouter.delete('/:id/documents/:docId', async (req, res) => {
+companiesRouter.delete('/:id/documents/:docId', requirePermission('companies', 'edit'), async (req, res) => {
   const { id: companyId } = await requireCompany(req.params.id);
   const doc = await getCompanyDocument(companyId, parseId(req.params.docId));
   if (!doc) throw new HttpError(404, 'Document not found');

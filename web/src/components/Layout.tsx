@@ -22,23 +22,24 @@ import { api, logoUrl, queryClient, useAppConfig, useAppConfigReady } from '../a
 import type { User } from '../types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ThemeToggle } from './ThemeSwitch';
+import { can, type Section } from '../permissions';
 
 /** The dashboard (the start page), the assistant, then the main modules in this order. */
-const MAIN_LINKS = [
-  { to: '/', label: 'Dashboard', icon: IconGauge },
-  { to: '/assistant', label: 'Assistant', icon: IconSparkles },
-  { to: '/quality', label: 'Quality Control', icon: IconShieldCheck },
-  { to: '/trips', label: 'Trips', icon: IconPlaneDeparture },
-  { to: '/open-credits', label: 'Open Credits', icon: IconTicket },
-  { to: '/companies', label: 'Companies', icon: IconBuilding },
-  { to: '/travellers', label: 'Travellers', icon: IconUsersGroup },
+const MAIN_LINKS: { to: string; label: string; icon: typeof IconGauge; section: Section }[] = [
+  { to: '/', label: 'Dashboard', icon: IconGauge, section: 'dashboard' },
+  { to: '/assistant', label: 'Assistant', icon: IconSparkles, section: 'assistant' },
+  { to: '/quality', label: 'Quality Control', icon: IconShieldCheck, section: 'quality' },
+  { to: '/trips', label: 'Trips', icon: IconPlaneDeparture, section: 'trips' },
+  { to: '/open-credits', label: 'Open Credits', icon: IconTicket, section: 'open_credits' },
+  { to: '/companies', label: 'Companies', icon: IconBuilding, section: 'companies' },
+  { to: '/travellers', label: 'Travellers', icon: IconUsersGroup, section: 'travellers' },
 ];
 
-const ADMIN_LINKS = [
-  { to: '/trash', label: 'Trash', icon: IconTrash },
-  { to: '/audit', label: 'Audit log', icon: IconFileDescription },
-  { to: '/employees', label: 'Employees', icon: IconUsers },
-  { to: '/settings', label: 'Settings', icon: IconSettings },
+const ADMIN_LINKS: typeof MAIN_LINKS = [
+  { to: '/trash', label: 'Trash', icon: IconTrash, section: 'trash' },
+  { to: '/audit', label: 'Audit log', icon: IconFileDescription, section: 'audit' },
+  { to: '/employees', label: 'Employees', icon: IconUsers, section: 'employees' },
+  { to: '/settings', label: 'Settings', icon: IconSettings, section: 'settings' },
 ];
 
 export function Layout({ user }: { user: User }) {
@@ -113,11 +114,12 @@ export function Layout({ user }: { user: User }) {
       </AppShell.Header>
 
       <AppShell.Navbar p="sm">
-        {MAIN_LINKS.map(renderLink)}
-        {user.role === 'admin' && (
+        {/* Only the sections this employee may open. */}
+        {MAIN_LINKS.filter((l) => can(user, l.section)).map(renderLink)}
+        {ADMIN_LINKS.some((l) => can(user, l.section)) && (
           <>
             <Divider my="sm" label="Admin" labelPosition="left" />
-            {ADMIN_LINKS.map(renderLink)}
+            {ADMIN_LINKS.filter((l) => can(user, l.section)).map(renderLink)}
           </>
         )}
       </AppShell.Navbar>

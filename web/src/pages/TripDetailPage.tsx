@@ -19,7 +19,7 @@ import {
 import { IconCheck, IconEdit, IconEye, IconFileTypePdf, IconPlus, IconTicket, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, notifyError, notifySuccess, queryClient, useMe } from '../api';
+import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { ActivityHistory } from '../components/ActivityHistory';
 import { BookingModal } from '../components/BookingModal';
 import { OpenCreditsTable } from '../components/OpenCreditsTable';
@@ -30,6 +30,7 @@ import { ItineraryTable } from '../components/ItineraryTable';
 import { DocumentUploadModal, FileViewer, ResolveTicketModal, TicketModal } from '../components/TripModals';
 import { ExpiryBadge, formatDate, formatDateTime, formatSize, formatTimestamp, labelOf, TripStatusBadge, travellerCode } from '../format';
 import { TICKET_STATUSES, TRIP_TYPES, type Booking, type Flight, type Ticket, type TripDetail, type TripDocument } from '../types';
+import { useCan } from '../permissions';
 
 const TICKET_COLORS: Record<string, string> = { open: 'orange', issued: 'blue', used: 'gray', refunded: 'grape', exchanged: 'cyan', void: 'red' };
 
@@ -38,7 +39,7 @@ export function TripDetailPage() {
   const [params] = useSearchParams();
   const [tab, setTab] = useState<string | null>(params.get('tab') ?? 'overview');
   const navigate = useNavigate();
-  const { data: me } = useMe();
+  const can = useCan();
   const [bookingModal, setBookingModal] = useState<{ kind: BookingKind; booking: Booking | null } | null>(null);
   const [ticketModal, setTicketModal] = useState<{ flightId: number | null; ticket: Ticket | null } | null>(null);
   const [resolving, setResolving] = useState<Ticket | null>(null);
@@ -260,10 +261,10 @@ export function TripDetailPage() {
           <Button component={Link} to={`/trips/${trip.id}/agenda`} variant="light" leftSection={<IconFileTypePdf size={16} />}>
             Travel agenda PDF
           </Button>
-          <Button component={Link} to={`/trips/${trip.id}/edit`} variant="default" leftSection={<IconEdit size={16} />}>
+          <Button component={Link} to={`/trips/${trip.id}/edit`} variant="default" leftSection={<IconEdit size={16} />} display={can('trips', 'edit') ? undefined : 'none'}>
             Edit
           </Button>
-          {me?.role === 'admin' && (
+          {can('trips', 'delete') && (
             <Button
               color="red"
               variant="light"
@@ -314,7 +315,7 @@ export function TripDetailPage() {
             <Card withBorder>
               <Group justify="space-between" mb="sm">
                 <Title order={4}>Itinerary, hotels, cars and others</Title>
-                <Button size="xs" variant="light" component={Link} to={`/trips/${trip.id}/edit`}>
+                <Button size="xs" variant="light" component={Link} to={`/trips/${trip.id}/edit`} display={can('trips', 'edit') ? undefined : 'none'}>
                   Edit
                 </Button>
               </Group>
@@ -336,7 +337,7 @@ export function TripDetailPage() {
             <Card withBorder>
               <Group justify="space-between" mb="sm">
                 <Title order={4}>Travellers ({travellers.length})</Title>
-                <Button size="xs" variant="light" component={Link} to={`/trips/${trip.id}/edit`}>
+                <Button size="xs" variant="light" component={Link} to={`/trips/${trip.id}/edit`} display={can('trips', 'edit') ? undefined : 'none'}>
                   Change travellers
                 </Button>
               </Group>

@@ -7,6 +7,7 @@ import { api } from '../api';
 import { ExpiryBadge, formatDate, formatTimestamp, travellerCode } from '../format';
 import { DOCUMENT_TYPES, PASSENGER_CATEGORIES, type ClientListRow } from '../types';
 import { exportQuery, ListFooter, PAGE_SIZE, SortTh, stop, useCompanyOptions, useListState } from './ListKit';
+import { useCan } from '../permissions';
 
 interface Props {
   urlBacked?: boolean;
@@ -38,6 +39,7 @@ function PassengerBadge({ category, onClick }: { category: ClientListRow['catego
 }
 
 export function TravellersTable({ urlBacked = false, companyId }: Props) {
+  const can = useCan();
   const navigate = useNavigate();
   const list = useListState(urlBacked);
   const companies = useCompanyOptions();
@@ -193,7 +195,7 @@ export function TravellersTable({ urlBacked = false, companyId }: Props) {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Edit">
-                          <ActionIcon variant="default" component={Link} to={`/travellers/${c.id}/edit`} aria-label="Edit traveller">
+                          <ActionIcon variant="default" component={Link} to={`/travellers/${c.id}/edit`} aria-label="Edit traveller" display={can('travellers', 'edit') ? undefined : 'none'}>
                             <IconEdit size={16} />
                           </ActionIcon>
                         </Tooltip>
@@ -206,7 +208,7 @@ export function TravellersTable({ urlBacked = false, companyId }: Props) {
           </Table.ScrollContainer>
         )}
       </Card>
-      <ListFooter list={list} total={data?.total} noun="travellers" exportHref={`/api/travellers/export?${exportQuery(search)}`} />
+      <ListFooter list={list} total={data?.total} noun="travellers" exportHref={can('travellers', 'export') ? `/api/travellers/export?${exportQuery(search)}` : undefined} />
     </Stack>
   );
 }

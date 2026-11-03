@@ -760,3 +760,51 @@ describe('names in capitals', () => {
     expect((await staff.get('/api/travellers').query({ q: 'mary' })).body.total).toBe(1);
   });
 });
+
+describe('staff permissions', () => {
+  const create = async (admin: request.Agent, email: string, permissions?: Record<string, string[]>) =>
+    (await admin.post('/api/users').send({ name: email, email, role: 'staff', password: PASSWORD, permissions })).body.user;
+
+  it('gives existing staff the same rights as before: view, add, edit and export, but no delete or admin pages', async () => {
+    const staff = await signIn('staff@test.com');
+    expect((await staff.get('/api/auth/me')).body.user.permissions).toMatchObject({ travellers: ['view', 'add', 'edit', 'export'] });
+    const id = (await staff.post('/api/travellers').send({ first_name: 'Perm', last_name: 'Default' })).body.client.id;
+    expect((await staff.delete(`/api/travellers/${id}`)).status).toBe(403);
+    for (const url of ['/api/trash', '/api/admin/audit', '/api/users', '/api/admin/settings']) expect((await staff.get(url)).status).toBe(403);
+  });
+
+  it('enforces what an admin assigns, section by section', async () => {
+    const admin = await signIn('admin@test.com');
+    const user = await create(admin, 'viewer@test.com', { travellers: ['view'], trash: ['view'], audit: ['view'] });
+    expect(user.permissions).toEqual({ travellers: ['view'], trash: ['view'], audit: ['view'] });
+    const viewer = await signIn('viewer@test.com');
+    expect((await viewer.get('/api/travellers')).status).toBe(200);
+    const blocked = await viewer.post('/api/travellers').send({ first_name: 'No', last_name: 'Add' });
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toContain('permission to add to Travellers');
+    expect((await viewer.get('/api/travellers/export')).status).toBe(403);
+    expect((await viewer.get('/api/trips')).status).toBe(403);
+    expect((await viewer.get('/api/trash')).status).toBe(200);
+    expect((await viewer.get('/api/admin/audit')).status).toBe(200);
+    // "view" comes with any other right; actions a section doesn't have are dropped.
+    const fixed = (await admin.put(`/api/users/${user.id}`).send({ permissions: { companies: ['delete'], dashboard: ['delete'] } })).body.user;
+    expect(fixed.permissions).toEqual({ companies: ['view', 'delete'] }); // the Dashboard has no Delete, so nothing is kept for it
+    // Backups stay admin-only whatever the permissions.
+    await admin.put(`/api/users/${user.id}`).send({ permissions: { settings: ['view', 'edit'] } });
+    expect((await viewer.get('/api/admin/backup')).status).toBe(403);
+    expect((await viewer.get('/api/admin/settings')).status).toBe(200);
+  });
+
+  it('lets staff who manage employees handle staff only, never more than they have', async () => {
+    const admin = await signIn('admin@test.com');
+    const manager = await create(admin, 'manager@test.com', { employees: ['view', 'edit'], travellers: ['view', 'edit'] });
+    const agent = await signIn('manager@test.com');
+    expect((await agent.post('/api/users').send({ name: 'X', email: 'x@test.com', role: 'admin', password: PASSWORD })).status).toBe(403);
+    expect((await agent.post('/api/users').send({ name: 'Y', email: 'y@test.com', role: 'staff', password: PASSWORD, permissions: { trips: ['view'] } })).status).toBe(403);
+    const ok = await agent.post('/api/users').send({ name: 'Z', email: 'z@test.com', role: 'staff', password: PASSWORD, permissions: { travellers: ['view'] } });
+    expect(ok.status).toBe(201);
+    expect((await agent.put(`/api/users/${manager.id}`).send({ permissions: { travellers: ['view', 'delete'] } })).status).toBe(403);
+    const adminRow = (await agent.get('/api/users')).body.users.find((u: { email: string }) => u.email === 'admin@test.com');
+    expect((await agent.put(`/api/users/${adminRow.id}`).send({ name: 'Hacked' })).status).toBe(403);
+  });
+});

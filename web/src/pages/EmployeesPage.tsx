@@ -21,6 +21,9 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { formatTimestamp } from '../format';
 import type { Role, User } from '../types';
+import { useMe } from '../api';
+import { DEFAULT_STAFF_PERMISSIONS, useCan, type Permissions } from '../permissions';
+import { PermissionsEditor } from '../components/PermissionsEditor';
 
 interface FormState {
   name: string;
@@ -31,6 +34,8 @@ interface FormState {
   password: string;
   reset_2fa: boolean;
   unlock: boolean;
+  /** Staff only. */
+  permissions: Permissions;
 }
 
 const blank: FormState = {
@@ -42,26 +47,32 @@ const blank: FormState = {
   password: '',
   reset_2fa: false,
   unlock: false,
+  permissions: DEFAULT_STAFF_PERMISSIONS,
 };
 
 function EmployeeModal({ user, opened, onClose }: { user: User | null; opened: boolean; onClose: () => void }) {
+  const { data: me } = useMe();
+  const isAdmin = me?.role === 'admin';
+  const isSelf = Boolean(user && me && user.id === me.id);
   const [form, setForm] = useState(blank);
   useEffect(() => {
-    if (opened) setForm(user ? { ...blank, ...user, password: '' } : blank);
+    if (opened) setForm(user ? { ...blank, ...user, password: '', permissions: user.permissions as Permissions } : blank);
   }, [opened, user]);
 
   const save = useMutation({
     mutationFn: () => {
       if (!user) {
-        const { name, email, role, receives_alerts, password } = form;
-        return api('/users', { body: { name, email, role, receives_alerts, password } });
+        const { name, email, role, receives_alerts, password, permissions } = form;
+        return api('/users', { body: { name, email, role, receives_alerts, password, permissions: role === 'staff' ? permissions : undefined } });
       }
       return api(`/users/${user.id}`, {
         method: 'PUT',
         body: {
           name: form.name,
           email: form.email,
-          role: form.role,
+          // Nobody changes their own role or permissions.
+          role: isSelf ? undefined : form.role,
+          permissions: form.role === 'staff' && !isSelf ? form.permissions : undefined,
           receives_alerts: form.receives_alerts,
           is_active: form.is_active,
           password: form.password || undefined,
@@ -82,7 +93,7 @@ function EmployeeModal({ user, opened, onClose }: { user: User | null; opened: b
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   return (
-    <Modal opened={opened} onClose={onClose} title={user ? `Edit ${user.name}` : 'New employee'}>
+    <Modal opened={opened} onClose={onClose} title={user ? `Edit ${user.name}` : 'New employee'} size={form.role === 'staff' ? 'xl' : 'md'}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -101,13 +112,18 @@ function EmployeeModal({ user, opened, onClose }: { user: User | null; opened: b
           <Select
             label="Role"
             allowDeselect={false}
+            disabled={isSelf || !isAdmin}
+            description={isSelf ? 'You cannot change your own role.' : !isAdmin ? 'Only an administrator can make someone an admin.' : undefined}
             data={[
-              { value: 'staff', label: 'Staff: manage clients and documents' },
-              { value: 'admin', label: 'Admin: also employees, settings, deletions and audit log' },
+              { value: 'staff', label: 'Staff: only what you tick below' },
+              { value: 'admin', label: 'Admin: everything, including employees, settings and backups' },
             ]}
             value={form.role}
             onChange={(v) => set('role', (v ?? 'staff') as Role)}
           />
+          {form.role === 'staff' && (
+            <PermissionsEditor value={form.permissions} onChange={(permissions) => set('permissions', permissions)} granter={me} disabled={isSelf} />
+          )}
           <PasswordInput
             label={user ? 'New password' : 'Password'}
             description={user ? 'Leave empty to keep the current password' : 'At least 10 characters. Share it privately.'}
@@ -163,20 +179,26 @@ export function EmployeesPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: () => api<{ users: User[] }>('/users') });
+  const can = useCan();
+  const { data: me } = useMe();
+  // Staff who manage employees can open staff accounts only.
+  const mayEdit = (u: User) => can('employees', 'edit') && (me?.role === 'admin' || u.role !== 'admin');
 
   return (
     <Stack>
       <Group justify="space-between">
         <Title order={2}>Employees</Title>
-        <Button
-          leftSection={<IconPlus size={16} />}
-          onClick={() => {
-            setEditing(null);
-            setOpen(true);
-          }}
-        >
-          New employee
-        </Button>
+        {can('employees', 'edit') && (
+          <Button
+            leftSection={<IconPlus size={16} />}
+            onClick={() => {
+              setEditing(null);
+              setOpen(true);
+            }}
+          >
+            New employee
+          </Button>
+        )}
       </Group>
       <Text c="dimmed" size="sm">
         Only employees listed here can sign in. Employees with the <IconBell size={13} /> bell receive the expiry alert emails.
@@ -202,8 +224,9 @@ export function EmployeesPage() {
                 {data?.users.map((u) => (
                   <Table.Tr
                     key={u.id}
-                    style={{ cursor: 'pointer', opacity: u.is_active ? 1 : 0.55 }}
+                    style={{ cursor: mayEdit(u) ? 'pointer' : 'default', opacity: u.is_active ? 1 : 0.55 }}
                     onClick={() => {
+                      if (!mayEdit(u)) return;
                       setEditing(u);
                       setOpen(true);
                     }}

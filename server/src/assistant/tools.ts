@@ -5,7 +5,6 @@ import {
   clientsWithBirthdays,
   countClients,
   countDocuments,
-  createClient,
   documentsExpiringBy,
   getClient,
   listDocuments,
@@ -14,10 +13,9 @@ import {
   type PublicUser,
   timezone,
 } from '../db/repo.js';
-import { createCompany, getCompany, searchCompanies } from '../db/companies.js';
+import { getCompany, searchCompanies } from '../db/companies.js';
 import {
   countUpcomingTrips,
-  createTrip,
   getTrip,
   getTripDetail,
   searchTrips,
@@ -29,8 +27,10 @@ import {
 import { upcomingBirthdays } from '../jobs/birthdays.js';
 import { addDays, daysBetween, todayInTz } from '../lib/dates.js';
 import { parseSearch } from '../lib/search.js';
-import { resetQc } from '../db/quality.js';
-import { clientSchema, companySchema, itineraryItemSchema, tripSchema } from '../routes/schemas.js';
+import { getTripQc, resetQc } from '../db/quality.js';
+import { itineraryItemSchema, tripSchema } from '../routes/schemas.js';
+import { BULK_TOOLS, BULK_WRITE_TOOLS, runBulk, type BatchContext } from './bulk.js';
+import { can, permissionMessage, type Action, type Section } from '../auth/permissions.js';
 
 /**
  * What the CRM assistant can do. Read tools run straight away; write tools
@@ -127,25 +127,6 @@ export const TOOLS: Tool[] = [
   },
   // ---------------------------------------------------------------- write tools (need approval)
   {
-    name: 'create_trip',
-    description:
-      'Create a trip. The employee sees a confirmation card and must approve before it is saved. ' +
-      'Look up company and traveller ids first. Every itinerary item needs a type and departure_date.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-        company_id: { type: 'integer' },
-        traveller_ids: { type: 'array', items: { type: 'integer' } },
-        trip_type: { type: 'string', enum: ['business', 'leisure', 'group', 'event', 'other'] },
-        status: { type: 'string', enum: ['active', 'inactive', 'cancelled'] },
-        notes: { type: 'string' },
-        itinerary: { type: 'array', items: ITINERARY_ITEM_SCHEMA, minItems: 1 },
-      },
-      required: ['name', 'itinerary'],
-    },
-  },
-  {
     name: 'add_itinerary_items',
     description: "Add flights, trains, hotels, cars or other items to an existing trip (needs approval).",
     input_schema: {
@@ -179,48 +160,47 @@ export const TOOLS: Tool[] = [
       required: ['trip', 'traveller_ids'],
     },
   },
-  {
-    name: 'create_traveller',
-    description: 'Create a traveller (needs approval). Search first to avoid creating a duplicate.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        first_name: { type: 'string' },
-        last_name: { type: 'string' },
-        company_id: { type: 'integer' },
-        date_of_birth: { type: 'string', description: 'YYYY-MM-DD' },
-        nationality: { type: 'string' },
-        phone: { type: 'string' },
-        email: { type: 'string' },
-        state: { type: 'string', description: 'State or province' },
-        city: { type: 'string' },
-        country: { type: 'string', description: 'Country name in English, e.g. Pakistan, United Arab Emirates' },
-        notes: { type: 'string' },
-      },
-      required: ['first_name', 'last_name'],
-    },
-  },
-  {
-    name: 'create_company',
-    description: 'Create a company (needs approval). Search first to avoid creating a duplicate.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-        primary_contact: { type: 'string' },
-        phone: { type: 'string' },
-        email: { type: 'string' },
-        state: { type: 'string', description: 'State or province' },
-        city: { type: 'string' },
-        country: { type: 'string', description: 'Country name in English, e.g. Pakistan, United Arab Emirates' },
-        notes: { type: 'string' },
-      },
-      required: ['name'],
-    },
-  },
 ];
 
-export const WRITE_TOOLS = new Set(['create_trip', 'add_itinerary_items', 'update_trip', 'add_travellers_to_trip', 'create_traveller', 'create_company']);
+TOOLS.push(...BULK_TOOLS);
+
+export const WRITE_TOOLS = new Set(['add_itinerary_items', 'update_trip', 'add_travellers_to_trip', ...BULK_WRITE_TOOLS]);
+
+/** The permission each tool needs; move_to_trash needs "delete" on each record's section (checked per record). */
+const TOOL_PERMISSIONS: Record<string, [Section, Action]> = {
+  search_trips: ['trips', 'view'],
+  get_trip: ['trips', 'view'],
+  search_travellers: ['travellers', 'view'],
+  get_traveller: ['travellers', 'view'],
+  search_companies: ['companies', 'view'],
+  get_company: ['companies', 'view'],
+  expiring_documents: ['travellers', 'view'],
+  crm_overview: ['dashboard', 'view'],
+  add_itinerary_items: ['trips', 'edit'],
+  update_trip: ['trips', 'edit'],
+  add_travellers_to_trip: ['trips', 'edit'],
+  create_travellers: ['travellers', 'add'],
+  update_travellers: ['travellers', 'edit'],
+  update_documents: ['travellers', 'edit'],
+  create_companies: ['companies', 'add'],
+  update_companies: ['companies', 'edit'],
+  create_trips: ['trips', 'add'],
+  set_quality_check: ['quality', 'edit'],
+};
+
+const TRASH_SECTIONS: Section[] = ['trips', 'companies', 'travellers'];
+
+/** Why this employee may not use the tool, or null when they may. */
+export function toolPermissionProblem(name: string, user: PublicUser): string | null {
+  if (name === 'move_to_trash') return TRASH_SECTIONS.some((s) => can(user, s, 'delete')) ? null : permissionMessage('trips', 'delete');
+  const need = TOOL_PERMISSIONS[name];
+  return need && !can(user, need[0], need[1]) ? permissionMessage(need[0], need[1]) : null;
+}
+
+/** Only the tools this employee is allowed to use, so the assistant doesn't offer what they can't do. */
+export function toolsFor(user: PublicUser): Tool[] {
+  return TOOLS.filter((t) => !toolPermissionProblem(t.name, user));
+}
 
 /** A tool failure Claude can read and act on (shown to it as an error result). */
 export class ToolError extends Error {}
@@ -308,8 +288,10 @@ const HANDLERS: Record<string, Handler> = {
   async get_trip(input) {
     const trip = await resolveTrip(input.trip);
     const d = (await getTripDetail(trip.id, today()))!;
+    const qc = await getTripQc(trip.id, today());
     return {
       ...d,
+      quality_check: { status: qc.status, items: qc.items.map((i) => ({ item: i.label, answer: i.answer })) },
       travellers: (d.travellers as Record<string, unknown>[]).map(({ email: _e, ...t }) => t),
       documents: (d.documents as { title: string }[]).map((doc) => doc.title),
     };
@@ -350,7 +332,9 @@ const HANDLERS: Record<string, Handler> = {
     const client = await getClient(Number(input.traveller_id));
     if (!client) throw new ToolError(`No traveller with id ${input.traveller_id}.`);
     const documents = (await listDocuments(client.id)).map((d) => ({
+      document_id: d.id,
       type: d.type,
+      other_type: d.other_type,
       issuing_country: d.issuing_country,
       expiry_date: d.expiry_date,
       days_until_expiry: d.expiry_date ? daysBetween(today(), d.expiry_date) : null,
@@ -427,16 +411,6 @@ const HANDLERS: Record<string, Handler> = {
 
   // ---------------------------------------------------------------- write tools
 
-  async create_trip(input, user) {
-    const data = parse(tripSchema, input);
-    await assertCompany(data.company_id);
-    await assertTravellers(data.traveller_ids);
-    const id = await createTrip(data, user.id);
-    const trip = (await getTrip(id, today()))!;
-    await audit(user, 'trip_created', 'trip', id, `${trip.reference} ${trip.name}${VIA}`);
-    return { created: trip.reference, id, link: `/trips/${id}` };
-  },
-
   async add_itinerary_items(input, user) {
     const trip = await resolveTrip(input.trip);
     const items = parse(z.array(itineraryItemSchema).min(1).max(50), input.items);
@@ -470,27 +444,16 @@ const HANDLERS: Record<string, Handler> = {
     return { updated: trip.reference, link: `/trips/${trip.id}` };
   },
 
-  async create_traveller(input, user) {
-    const data = parse(clientSchema, input);
-    await assertCompany(data.company_id);
-    const id = await createClient(data, user.id);
-    await audit(user, 'client_created', 'client', id, `${data.first_name} ${data.last_name}${VIA}`);
-    return { created: `${data.first_name} ${data.last_name}`, id, link: `/travellers/${id}` };
-  },
-
-  async create_company(input, user) {
-    const data = parse(companySchema, input);
-    const id = await createCompany(data, user.id);
-    await audit(user, 'company_created', 'company', id, `${data.name}${VIA}`);
-    return { created: data.name, id, link: `/companies/${id}` };
-  },
 };
 
 /** Runs one tool; returns its JSON result, or throws ToolError for problems Claude should see. */
-export async function runTool(name: string, input: unknown, user: PublicUser): Promise<unknown> {
+export async function runTool(name: string, input: unknown, user: PublicUser, ctx: BatchContext = { newCompanyNames: new Set() }): Promise<unknown> {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new ToolError('Tool input must be an object');
+  const problem = toolPermissionProblem(name, user);
+  if (problem) throw new ToolError(problem);
+  if (BULK_WRITE_TOOLS.has(name)) return runBulk(name, input as Record<string, unknown>, user, ctx);
   const handler = HANDLERS[name];
   if (!handler) throw new ToolError(`Unknown tool ${name}`);
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new ToolError('Tool input must be an object');
   return handler(input as Record<string, unknown>, user);
 }
 
@@ -500,9 +463,6 @@ export function describeAction(name: string, input: Record<string, unknown>): st
   const leg = (i: Record<string, unknown>) =>
     `${i.type ?? 'item'} ${[i.airline, i.flight_number, i.name].filter(Boolean).join(' ')} ${[i.origin, i.destination].filter(Boolean).join(' → ')} on ${i.departure_date ?? '?'}${i.departure_time ? ` ${i.departure_time}` : ''}`;
   switch (name) {
-    case 'create_trip':
-      return `Create trip "${input.name}" with ${items(input.itinerary).length} itinerary item(s): ${items(input.itinerary).map(leg).join('; ')}` +
-        (items(input.traveller_ids).length ? ` and ${items(input.traveller_ids).length} traveller(s)` : '');
     case 'add_itinerary_items':
       return `Add to ${input.trip}: ${items(input.items).map(leg).join('; ')}`;
     case 'update_trip': {
@@ -511,10 +471,22 @@ export function describeAction(name: string, input: Record<string, unknown>): st
     }
     case 'add_travellers_to_trip':
       return `Add traveller id(s) ${items(input.traveller_ids).join(', ')} to ${input.trip}`;
-    case 'create_traveller':
-      return `Create traveller ${input.first_name} ${input.last_name}` + (input.company_id ? ` (company id ${input.company_id})` : '');
-    case 'create_company':
-      return `Create company "${input.name}"`;
+    case 'create_travellers':
+      return `Add ${items(input.travellers).length} traveller(s)`;
+    case 'update_travellers':
+      return `Update ${items(input.updates).length} traveller(s)`;
+    case 'update_documents':
+      return `Update ${items(input.updates).length} document(s)`;
+    case 'create_companies':
+      return `Add ${items(input.companies).length} company(ies)`;
+    case 'update_companies':
+      return `Update ${items(input.updates).length} company(ies)`;
+    case 'create_trips':
+      return `Create ${items(input.trips).length} trip(s)`;
+    case 'set_quality_check':
+      return `Quality check for ${input.trip}: ${items(input.answers).length} item(s)`;
+    case 'move_to_trash':
+      return `Move ${items(input.records).length} record(s) to the Trash`;
     default:
       return name;
   }

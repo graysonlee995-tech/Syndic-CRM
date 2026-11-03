@@ -3,7 +3,7 @@ import { ActionIcon, Button, Card, Group, Loader, SimpleGrid, Stack, Table, Tabs
 import { IconEdit, IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, notifyError, notifySuccess, queryClient, useMe } from '../api';
+import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { ActivityHistory } from '../components/ActivityHistory';
 import { Field } from '../components/Field';
 import { ContactsList } from '../components/ExtraContacts';
@@ -12,11 +12,12 @@ import { DocumentUploadModal, FileViewer } from '../components/TripModals';
 import { TripsTable } from '../components/TripsTable';
 import { companyCode, formatSize, formatTimestamp } from '../format';
 import type { Company, CompanyDocument, Contacts } from '../types';
+import { useCan } from '../permissions';
 
 export function CompanyDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data: me } = useMe();
+  const can = useCan();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [viewing, setViewing] = useState<CompanyDocument | null>(null);
 
@@ -62,10 +63,10 @@ export function CompanyDetailPage() {
           <Title order={2}>{company.name}</Title>
         </div>
         <Group>
-          <Button component={Link} to={`/companies/${company.id}/edit`} variant="default" leftSection={<IconEdit size={16} />}>
+          <Button component={Link} to={`/companies/${company.id}/edit`} variant="default" leftSection={<IconEdit size={16} />} display={can('companies', 'edit') ? undefined : 'none'}>
             Edit
           </Button>
-          {me?.role === 'admin' && (
+          {can('companies', 'delete') && (
             <Button
               color="red"
               variant="light"
@@ -128,7 +129,7 @@ export function CompanyDetailPage() {
         <Tabs.Panel value="trips" pt="md">
           <Stack>
             <Group justify="flex-end">
-              <Button component={Link} to={`/trips/new?companyId=${company.id}`} leftSection={<IconPlus size={16} />}>
+              <Button component={Link} to={`/trips/new?companyId=${company.id}`} leftSection={<IconPlus size={16} />} display={can('trips', 'add') ? undefined : 'none'}>
                 Add trip
               </Button>
             </Group>

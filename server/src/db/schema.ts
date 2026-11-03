@@ -580,6 +580,11 @@ export const MIGRATIONS: Migration[] = [
     WHERE first_name <> upper(first_name) OR last_name <> upper(last_name);
   UPDATE companies SET name = upper(name) WHERE name <> upper(name);
   `,
+
+  // 14: per-section permissions for staff (JSON; null keeps the standard staff rights).
+  /* sql */ `
+  ALTER TABLE users ADD COLUMN permissions text;
+  `,
 ];
 
 /** Every column holding a country. */

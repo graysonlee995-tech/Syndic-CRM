@@ -5,6 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { formatTimestamp } from '../format';
 import { QC_ANSWERS, type TripDetail, type TripQc } from '../types';
+import { useCan } from '../permissions';
 
 /** "QC passed" / "QC pending"; nothing for trips that don't need a check. */
 export function QcBadge({ status, size = 'sm' }: { status: 'passed' | 'missing' | null | undefined; size?: 'xs' | 'sm' | 'md' }) {
@@ -37,9 +38,12 @@ export function TripQualityCheck({ tripId }: { tripId: number }) {
  * click the chosen one again to clear it). Passes when every item has an answer.
  */
 export function QualityChecklist({ tripId, qc }: { tripId: number; qc: TripQc }) {
+  const mayEdit = useCan()('quality', 'edit');
   const saved = useMemo(() => Object.fromEntries(qc.items.map((i) => [i.id, i.answer])), [qc]);
   const [answers, setAnswers] = useState<Record<number, string | null>>(saved);
-  useEffect(() => setAnswers(saved), [saved]);
+  useEffect(() => {
+    setAnswers(saved);
+  }, [saved]);
 
   const changed = qc.items.filter((i) => (answers[i.id] ?? null) !== (saved[i.id] ?? null));
   const answered = qc.items.filter((i) => answers[i.id]).length;
@@ -140,7 +144,7 @@ export function QualityChecklist({ tripId, qc }: { tripId: number; qc: TripQc })
         <Text size="xs" c="dimmed">
           Saving the trip or changing its bookings clears this check, so it is done again.
         </Text>
-        <Button onClick={() => save.mutate()} loading={save.isPending} disabled={!changed.length}>
+        <Button onClick={() => save.mutate()} loading={save.isPending} disabled={!changed.length || !mayEdit}>
           Save quality check
         </Button>
       </Group>

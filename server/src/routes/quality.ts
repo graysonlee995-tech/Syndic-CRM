@@ -4,6 +4,7 @@ import { timezone } from '../db/repo.js';
 import { listQcItems, searchQc } from '../db/quality.js';
 import { todayInTz } from '../lib/dates.js';
 import { optId, pagingSchema } from './schemas.js';
+import { requirePermission, requireAnyPermission } from '../auth/permissions.js';
 
 /** Quality assurance: trips that need a check, and the checklist itself. Answers are saved under /api/trips/:id/qc. */
 export const qualityRouter = Router();
@@ -14,7 +15,7 @@ const listSchema = pagingSchema.extend({
   companyId: optId,
 });
 
-qualityRouter.get('/', async (req, res) => {
+qualityRouter.get('/', requirePermission('quality', 'view'), async (req, res) => {
   const query = listSchema.parse(req.query);
   const { rows, total } = await searchQc({
     q: query.q,
@@ -27,6 +28,6 @@ qualityRouter.get('/', async (req, res) => {
   res.json({ trips: rows, total, page: query.page, pageSize: query.pageSize });
 });
 
-qualityRouter.get('/items', async (_req, res) => {
+qualityRouter.get('/items', requireAnyPermission(['quality', 'view'], ['trips', 'view'], ['settings', 'view']), async (_req, res) => {
   res.json({ items: await listQcItems() });
 });

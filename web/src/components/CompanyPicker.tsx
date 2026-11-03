@@ -3,6 +3,7 @@ import { Button, Group, Modal, Select, Tooltip } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import { CompanyForm } from './CompanyForm';
 import { useCompanyOptions } from './ListKit';
+import { useCan } from '../permissions';
 
 interface Props {
   /** Selected company id as a string, or '' for none. */
@@ -18,6 +19,7 @@ interface Props {
  */
 export function CompanyPicker({ value, onChange, placeholder = 'No company' }: Props) {
   const companies = useCompanyOptions();
+  const mayAdd = useCan()('companies', 'add');
   const [search, setSearch] = useState('');
   // The box clears its text when it loses focus (e.g. on clicking Add), so keep the last thing typed.
   const [typed, setTyped] = useState('');
@@ -44,7 +46,7 @@ export function CompanyPicker({ value, onChange, placeholder = 'No company' }: P
           style={{ flex: 1 }}
         />
         <Tooltip label="Add a new company without leaving this page">
-          <Button variant="default" leftSection={<IconPlus size={14} />} onClick={() => setAdding(true)}>
+          <Button variant="default" leftSection={<IconPlus size={14} />} display={mayAdd ? undefined : 'none'} onClick={() => setAdding(true)}>
             Add
           </Button>
         </Tooltip>

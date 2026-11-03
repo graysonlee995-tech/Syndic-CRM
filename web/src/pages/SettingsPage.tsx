@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Code, Group, Loader, NumberInput, Select, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
 import { IconAlertCircle, IconClock, IconMail, IconPlayerPlay } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { api, notifyError, notifySuccess, queryClient, useAppConfig } from '../api';
+import { api, notifyError, notifySuccess, queryClient, useAppConfig, useMe } from '../api';
 import type { Settings } from '../types';
 import { AssistantKeyCard } from '../components/AssistantKeyCard';
 import { EmailSettingsCard } from '../components/EmailSettingsCard';
@@ -12,6 +12,7 @@ import { LogoCard } from '../components/LogoCard';
 import { AppearanceCard } from '../components/ThemeSwitch';
 
 export function SettingsPage() {
+  const { data: me } = useMe();
   const { data, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api<{ settings: Settings; mailConfigured: boolean }>('/admin/settings'),
@@ -80,7 +81,8 @@ export function SettingsPage() {
       <QcItemsCard />
       <AssistantKeyCard />
       <EmailSettingsCard />
-      <BackupCard />
+      {/* A backup holds every record and a restore replaces them all: administrators only. */}
+      {me?.role === 'admin' && <BackupCard />}
       <Title order={4} mt="sm">
         Expiry and birthday alerts
       </Title>
@@ -186,7 +188,9 @@ const nowIn = (timeZone: string) => {
 /** The CRM's time zone: "today" for alerts and trip status, the daily check time and how times are shown. */
 function TimezoneCard({ current }: { current: string }) {
   const [zone, setZone] = useState(current);
-  useEffect(() => setZone(current), [current]);
+  useEffect(() => {
+    setZone(current);
+  }, [current]);
   const save = useMutation({
     mutationFn: () => api('/admin/timezone', { method: 'PUT', body: { timezone: zone } }),
     onSuccess: () => {

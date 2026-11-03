@@ -1,14 +1,15 @@
 import { Router } from 'express';
 import { audit, deleteDocument, getDocument, updateDocument } from '../db/repo.js';
-import { currentUser, requireRole } from '../auth/session.js';
+import { currentUser } from '../auth/session.js';
 import { readFile, removeFile } from '../lib/files.js';
 import { contentDisposition, HttpError, parseId } from '../lib/http.js';
 import { documentSchema } from './schemas.js';
 import { storeUpload, upload } from './uploads.js';
+import { requirePermission } from '../auth/permissions.js';
 
 export const documentsRouter = Router();
 
-documentsRouter.put('/:id', upload.single('file'), async (req, res) => {
+documentsRouter.put('/:id', requirePermission('travellers', 'edit'), upload.single('file'), async (req, res) => {
   const id = parseId(req.params.id);
   const before = await getDocument(id);
   if (!before) throw new HttpError(404, 'Document not found');
@@ -25,7 +26,7 @@ documentsRouter.put('/:id', upload.single('file'), async (req, res) => {
   res.json({ document: await getDocument(id) });
 });
 
-documentsRouter.get('/:id/file', async (req, res) => {
+documentsRouter.get('/:id/file', requirePermission('travellers', 'view'), async (req, res) => {
   const id = parseId(req.params.id);
   const doc = await getDocument(id);
   if (!doc?.file_name) throw new HttpError(404, 'No file uploaded for this document');
@@ -41,7 +42,7 @@ documentsRouter.get('/:id/file', async (req, res) => {
   res.send(body);
 });
 
-documentsRouter.delete('/:id', requireRole('admin'), async (req, res) => {
+documentsRouter.delete('/:id', requirePermission('travellers', 'delete'), async (req, res) => {
   const id = parseId(req.params.id);
   const doc = await getDocument(id);
   if (!doc) throw new HttpError(404, 'Document not found');

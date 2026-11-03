@@ -22,6 +22,7 @@ import { AuditPage } from './pages/AuditPage';
 import { AccountPage } from './pages/AccountPage';
 import { TrashPage } from './pages/TrashPage';
 import { AssistantPage } from './pages/AssistantPage';
+import { Allowed } from './permissions';
 
 /** Old /clients links (bookmarks, earlier alert emails) now open the traveller pages. */
 function ClientRedirect({ suffix = '' }: { suffix?: string }) {
@@ -41,37 +42,36 @@ export function App() {
   }
   if (!user) return <LoginPage />;
 
-  const isAdmin = user.role === 'admin';
   return (
     <Routes>
       {/* Printable page, outside the app shell */}
-      <Route path="trips/:id/agenda" element={<TripAgendaPage />} />
+      <Route path="trips/:id/agenda" element={<Allowed section="trips"><TripAgendaPage /></Allowed>} />
       <Route element={<Layout user={user} />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="assistant" element={<AssistantPage />} />
-        <Route path="trips" element={<TripsPage />} />
-        <Route path="trips/new" element={<TripFormPage />} />
-        <Route path="trips/:id" element={<TripDetailPage />} />
-        <Route path="trips/:id/edit" element={<TripFormPage />} />
-        <Route path="open-credits" element={<OpenCreditsPage />} />
-        <Route path="quality" element={<QualityPage />} />
-        <Route path="companies" element={<CompaniesPage />} />
-        <Route path="companies/new" element={<CompanyFormPage />} />
-        <Route path="companies/:id" element={<CompanyDetailPage />} />
-        <Route path="companies/:id/edit" element={<CompanyFormPage />} />
-        <Route path="travellers" element={<ClientsPage />} />
-        <Route path="travellers/new" element={<ClientFormPage />} />
-        <Route path="travellers/:id" element={<ClientDetailPage />} />
-        <Route path="travellers/:id/edit" element={<ClientFormPage />} />
+        <Route index element={<Allowed section="dashboard"><DashboardPage /></Allowed>} />
+        <Route path="assistant" element={<Allowed section="assistant"><AssistantPage /></Allowed>} />
+        <Route path="trips" element={<Allowed section="trips"><TripsPage /></Allowed>} />
+        <Route path="trips/new" element={<Allowed section="trips" action="add"><TripFormPage /></Allowed>} />
+        <Route path="trips/:id" element={<Allowed section="trips"><TripDetailPage /></Allowed>} />
+        <Route path="trips/:id/edit" element={<Allowed section="trips" action="edit"><TripFormPage /></Allowed>} />
+        <Route path="open-credits" element={<Allowed section="open_credits"><OpenCreditsPage /></Allowed>} />
+        <Route path="quality" element={<Allowed section="quality"><QualityPage /></Allowed>} />
+        <Route path="companies" element={<Allowed section="companies"><CompaniesPage /></Allowed>} />
+        <Route path="companies/new" element={<Allowed section="companies" action="add"><CompanyFormPage /></Allowed>} />
+        <Route path="companies/:id" element={<Allowed section="companies"><CompanyDetailPage /></Allowed>} />
+        <Route path="companies/:id/edit" element={<Allowed section="companies" action="edit"><CompanyFormPage /></Allowed>} />
+        <Route path="travellers" element={<Allowed section="travellers"><ClientsPage /></Allowed>} />
+        <Route path="travellers/new" element={<Allowed section="travellers" action="add"><ClientFormPage /></Allowed>} />
+        <Route path="travellers/:id" element={<Allowed section="travellers"><ClientDetailPage /></Allowed>} />
+        <Route path="travellers/:id/edit" element={<Allowed section="travellers" action="edit"><ClientFormPage /></Allowed>} />
         <Route path="clients" element={<ClientRedirect />} />
         <Route path="clients/new" element={<Navigate to="/travellers/new" replace />} />
         <Route path="clients/:id" element={<ClientRedirect />} />
         <Route path="clients/:id/edit" element={<ClientRedirect suffix="/edit" />} />
         <Route path="account" element={<AccountPage />} />
-        {isAdmin && <Route path="trash" element={<TrashPage />} />}
-        {isAdmin && <Route path="employees" element={<EmployeesPage />} />}
-        {isAdmin && <Route path="settings" element={<SettingsPage />} />}
-        {isAdmin && <Route path="audit" element={<AuditPage />} />}
+        <Route path="trash" element={<Allowed section="trash"><TrashPage /></Allowed>} />
+        <Route path="employees" element={<Allowed section="employees"><EmployeesPage /></Allowed>} />
+        <Route path="settings" element={<Allowed section="settings"><SettingsPage /></Allowed>} />
+        <Route path="audit" element={<Allowed section="audit"><AuditPage /></Allowed>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

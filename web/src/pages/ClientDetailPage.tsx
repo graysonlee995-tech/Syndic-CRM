@@ -19,7 +19,7 @@ import {
 import { IconEdit, IconEye, IconPlus, IconTrash, IconPaperclip } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, notifyError, notifySuccess, queryClient, useMe } from '../api';
+import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { ActivityHistory } from '../components/ActivityHistory';
 import { DocumentFormModal } from '../components/DocumentFormModal';
 import { DocumentViewer } from '../components/DocumentViewer';
@@ -29,6 +29,7 @@ import { TripsTable } from '../components/TripsTable';
 import { SabreEntriesList } from '../components/SabreEntries';
 import { ExpiryBadge, formatDate, formatTimestamp, travellerCode } from '../format';
 import { documentLabel, type Client, type ClientDocument, type LoyaltyMembership, type Contacts } from '../types';
+import { useCan } from '../permissions';
 
 const BLANK_LOYALTY = { airline: '', programme: '', member_number: '', tier: '' };
 
@@ -111,8 +112,7 @@ function LoyaltyModal({
 export function ClientDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data: me } = useMe();
-  const isAdmin = me?.role === 'admin';
+  const can = useCan();
   const [editing, setEditing] = useState<ClientDocument | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [viewing, setViewing] = useState<ClientDocument | null>(null);
@@ -179,13 +179,13 @@ export function ClientDetailPage() {
           </Title>
         </div>
         <Group>
-          <Button component={Link} to={`/trips/new?travellerId=${client.id}${client.company_id ? `&companyId=${client.company_id}` : ''}`} variant="light" leftSection={<IconPlus size={16} />}>
+          <Button component={Link} to={`/trips/new?travellerId=${client.id}${client.company_id ? `&companyId=${client.company_id}` : ''}`} variant="light" leftSection={<IconPlus size={16} />} display={can('trips', 'add') ? undefined : 'none'}>
             Add trip
           </Button>
-          <Button component={Link} to={`/travellers/${client.id}/edit`} variant="default" leftSection={<IconEdit size={16} />}>
+          <Button component={Link} to={`/travellers/${client.id}/edit`} variant="default" leftSection={<IconEdit size={16} />} display={can('travellers', 'edit') ? undefined : 'none'}>
             Edit
           </Button>
-          {isAdmin && (
+          {can('travellers', 'delete') && (
             <Button
               color="red"
               variant="light"
@@ -268,6 +268,7 @@ export function ClientDetailPage() {
           <Button
             size="sm"
             leftSection={<IconPlus size={16} />}
+            display={can('travellers', 'edit') ? undefined : 'none'}
             onClick={() => {
               setEditing(null);
               setFormOpen(true);
@@ -324,6 +325,7 @@ export function ClientDetailPage() {
                           <ActionIcon
                             variant="default"
                             aria-label="Edit document"
+                                display={can('travellers', 'edit') ? undefined : 'none'}
                             onClick={() => {
                               setEditing(d);
                               setFormOpen(true);
@@ -332,7 +334,7 @@ export function ClientDetailPage() {
                             <IconEdit size={16} />
                           </ActionIcon>
                         </Tooltip>
-                        {isAdmin && (
+                        {can('travellers', 'delete') && (
                           <Tooltip label="Delete">
                             <ActionIcon
                               variant="light"
@@ -361,7 +363,7 @@ export function ClientDetailPage() {
       <Card withBorder>
         <Group justify="space-between" mb="sm">
           <Title order={4}>Frequent flyer memberships</Title>
-          <Button size="sm" leftSection={<IconPlus size={16} />} onClick={() => setLoyalty({ open: true, membership: null })}>
+          <Button size="sm" leftSection={<IconPlus size={16} />} display={can('travellers', 'edit') ? undefined : 'none'} onClick={() => setLoyalty({ open: true, membership: null })}>
             Add membership
           </Button>
         </Group>
@@ -390,13 +392,14 @@ export function ClientDetailPage() {
                     <Table.Td>{m.tier ?? '-'}</Table.Td>
                     <Table.Td>
                       <Group gap={4} justify="flex-end" wrap="nowrap">
-                        <ActionIcon variant="default" aria-label="Edit membership" onClick={() => setLoyalty({ open: true, membership: m })}>
+                        <ActionIcon variant="default" aria-label="Edit membership" display={can('travellers', 'edit') ? undefined : 'none'} onClick={() => setLoyalty({ open: true, membership: m })}>
                           <IconEdit size={16} />
                         </ActionIcon>
                         <ActionIcon
                           variant="light"
                           color="red"
                           aria-label="Remove membership"
+                          display={can('travellers', 'edit') ? undefined : 'none'}
                           onClick={() => confirm(`Remove the ${m.airline} membership?`) && deleteLoyalty.mutate(m.id)}
                         >
                           <IconTrash size={16} />

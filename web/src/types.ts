@@ -11,6 +11,8 @@ export interface User {
   locked: boolean;
   created_at: string;
   last_login_at: string | null;
+  /** What this employee may do, per section (see permissions.tsx); admins have everything. */
+  permissions: Partial<Record<string, string[]>>;
 }
 
 /** A traveller. Stored as a "client" on the server. */

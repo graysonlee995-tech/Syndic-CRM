@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { audit, timezone } from '../db/repo.js';
 import { CREDIT_STATUSES, deleteOpenCredit, getOpenCredit, moveCreditBack, searchOpenCredits, setOpenCreditStatus, type OpenCreditRow } from '../db/trips.js';
 import { resetQc } from '../db/quality.js';
-import { currentUser, requireRole } from '../auth/session.js';
+import { currentUser } from '../auth/session.js';
 import { todayInTz } from '../lib/dates.js';
 import { HttpError, parseId } from '../lib/http.js';
 import { EXPORT_LIMIT, exportFileName, sendWorkbook } from '../lib/excel.js';
 import { creditStatusSchema, optId, pagingSchema } from './schemas.js';
+import { requirePermission } from '../auth/permissions.js';
 
 /** Flights and trains taken off trips as unused credit, one per traveller. */
 export const openCreditsRouter = Router();
@@ -31,13 +32,13 @@ const searchFrom = (query: z.infer<typeof listSchema>, limit: number, offset: nu
     offset,
   });
 
-openCreditsRouter.get('/', async (req, res) => {
+openCreditsRouter.get('/', requirePermission('open_credits', 'view'), async (req, res) => {
   const query = listSchema.parse(req.query);
   const { rows, total } = await searchFrom(query, query.pageSize, (query.page - 1) * query.pageSize);
   res.json({ credits: rows, total, page: query.page, pageSize: query.pageSize });
 });
 
-openCreditsRouter.get('/export', async (req, res) => {
+openCreditsRouter.get('/export', requirePermission('open_credits', 'export'), async (req, res) => {
   const query = listSchema.parse(req.query);
   const { rows } = await searchFrom(query, EXPORT_LIMIT, 0);
   await audit(currentUser(req), 'open_credits_exported', 'open_credit', null, `${rows.length} credit(s); status ${query.status}`);
@@ -80,7 +81,7 @@ const describe = (c: OpenCreditRow) =>
   `${c.first_name} ${c.last_name}: ${[c.name, c.airline, c.flight_number].filter(Boolean).join(' ') || c.type} ${[c.origin, c.destination].filter(Boolean).join(' → ')} ${c.departure_date}`;
 
 /** Marks the credit used, refunded or expired, or open again. */
-openCreditsRouter.put('/:id/status', async (req, res) => {
+openCreditsRouter.put('/:id/status', requirePermission('open_credits', 'edit'), async (req, res) => {
   const credit = await requireCredit(req.params.id);
   const { status, notes } = creditStatusSchema.parse(req.body);
   await setOpenCreditStatus(credit, status, notes, currentUser(req).id);
@@ -89,7 +90,7 @@ openCreditsRouter.put('/:id/status', async (req, res) => {
 });
 
 /** Admins: put the row back on its trip (marked open credit by mistake); removes the credits of every traveller made from it. */
-openCreditsRouter.post('/:id/move-back', requireRole('admin'), async (req, res) => {
+openCreditsRouter.post('/:id/move-back', requirePermission('open_credits', 'delete'), async (req, res) => {
   const credit = await requireCredit(req.params.id);
   const removed = await moveCreditBack(credit);
   await audit(currentUser(req), 'trip_open_credit_moved_back', 'trip', credit.trip_id, `${describe(credit)} (${removed} credit(s) removed)`);
@@ -97,7 +98,7 @@ openCreditsRouter.post('/:id/move-back', requireRole('admin'), async (req, res) 
   res.json({ ok: true, removed, trip_id: credit.trip_id });
 });
 
-openCreditsRouter.delete('/:id', requireRole('admin'), async (req, res) => {
+openCreditsRouter.delete('/:id', requirePermission('open_credits', 'delete'), async (req, res) => {
   const credit = await requireCredit(req.params.id);
   await deleteOpenCredit(credit);
   await audit(currentUser(req), 'trip_open_credit_removed', 'trip', credit.trip_id, describe(credit));

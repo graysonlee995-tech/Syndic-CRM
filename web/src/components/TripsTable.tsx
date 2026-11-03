@@ -8,6 +8,7 @@ import { formatDate, formatTimestamp, labelOf, TripStatusBadge } from '../format
 import { QcBadge } from './QualityCheck';
 import { TRIP_FILTERS, TRIP_TYPES, type TripListRow } from '../types';
 import { exportQuery, ListFooter, PAGE_SIZE, SortTh, stop, useCompanyOptions, useListState } from './ListKit';
+import { useCan } from '../permissions';
 
 interface Props {
   /** Full Trips page: state lives in the URL and a company filter is shown. */
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function TripsTable({ urlBacked = false, companyId, travellerId }: Props) {
+  const can = useCan();
   const navigate = useNavigate();
   const list = useListState(urlBacked);
   const companies = useCompanyOptions();
@@ -152,7 +154,7 @@ export function TripsTable({ urlBacked = false, companyId, travellerId }: Props)
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Edit">
-                          <ActionIcon variant="default" component={Link} to={`/trips/${t.id}/edit`} aria-label="Edit trip">
+                          <ActionIcon variant="default" component={Link} to={`/trips/${t.id}/edit`} aria-label="Edit trip" display={can('trips', 'edit') ? undefined : 'none'}>
                             <IconEdit size={16} />
                           </ActionIcon>
                         </Tooltip>
@@ -170,7 +172,7 @@ export function TripsTable({ urlBacked = false, companyId, travellerId }: Props)
           </Table.ScrollContainer>
         )}
       </Card>
-      <ListFooter list={list} total={data?.total} noun="trips" exportHref={`/api/trips/export?${exportQuery(search)}`} />
+      <ListFooter list={list} total={data?.total} noun="trips" exportHref={can('trips', 'export') ? `/api/trips/export?${exportQuery(search)}` : undefined} />
     </Stack>
   );
 }

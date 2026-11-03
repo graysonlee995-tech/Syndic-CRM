@@ -25,13 +25,14 @@ import { contactSummaries, listContacts, replaceContacts } from '../db/contacts.
 import { EXPORT_LIMIT, exportFileName, sendWorkbook } from '../lib/excel.js';
 import { tx } from '../db/index.js';
 import { reindexClient } from '../db/repo.js';
-import { currentUser, requireRole } from '../auth/session.js';
+import { currentUser } from '../auth/session.js';
 import { todayInTz } from '../lib/dates.js';
 import { removeFile } from '../lib/files.js';
 import { HttpError, parseId } from '../lib/http.js';
 import { parseSearch } from '../lib/search.js';
 import { clientSchema, contactsSchema, documentSchema, loyaltySchema, optDate, optId, optText, pagingSchema, sortSchema } from './schemas.js';
 import { storeUpload, upload } from './uploads.js';
+import { requirePermission, requireAnyPermission } from '../auth/permissions.js';
 
 /** Travellers. Stored in the `clients` table; mounted at /api/travellers and /api/clients. */
 export const clientsRouter = Router();
@@ -75,14 +76,14 @@ async function searchFrom(query: z.infer<typeof searchSchema>, limit: number, of
   });
 }
 
-clientsRouter.get('/', async (req, res) => {
+clientsRouter.get('/', requirePermission('travellers', 'view'), async (req, res) => {
   const query = searchSchema.parse(req.query);
   const { rows, total } = await searchFrom(query, query.pageSize, (query.page - 1) * query.pageSize);
   res.json({ clients: rows, total, page: query.page, pageSize: query.pageSize });
 });
 
 /** The filtered list as an Excel file, including extra phones and addresses. */
-clientsRouter.get('/export', async (req, res) => {
+clientsRouter.get('/export', requirePermission('travellers', 'export'), async (req, res) => {
   const query = searchSchema.parse(req.query);
   const { rows } = await searchFrom(query, EXPORT_LIMIT, 0);
   const extras = await contactSummaries('client', rows.map((c) => c.id));
@@ -132,11 +133,11 @@ clientsRouter.get('/export', async (req, res) => {
   ]);
 });
 
-clientsRouter.get('/options', async (_req, res) => {
+clientsRouter.get('/options', requireAnyPermission(['trips', 'view'], ['travellers', 'view'], ['companies', 'view'], ['open_credits', 'view'], ['quality', 'view']), async (_req, res) => {
   res.json({ travellers: await listClientOptions() });
 });
 
-clientsRouter.post('/', async (req, res) => {
+clientsRouter.post('/', requirePermission('travellers', 'add'), async (req, res) => {
   const user = currentUser(req);
   const input = clientSchema.parse(req.body);
   const { emails, phones, addresses } = contactsSchema.parse(req.body);
@@ -151,7 +152,7 @@ clientsRouter.post('/', async (req, res) => {
   res.status(201).json({ client: await getClient(id) });
 });
 
-clientsRouter.get('/:id', async (req, res) => {
+clientsRouter.get('/:id', requirePermission('travellers', 'view'), async (req, res) => {
   const client = await requireClient(req.params.id);
   await audit(currentUser(req), 'client_viewed', 'client', client.id);
   res.json({
@@ -162,7 +163,7 @@ clientsRouter.get('/:id', async (req, res) => {
   });
 });
 
-clientsRouter.put('/:id', async (req, res) => {
+clientsRouter.put('/:id', requirePermission('travellers', 'edit'), async (req, res) => {
   const { id } = await requireClient(req.params.id);
   const input = clientSchema.parse(req.body);
   const { emails, phones, addresses } = contactsSchema.parse(req.body);
@@ -177,14 +178,14 @@ clientsRouter.put('/:id', async (req, res) => {
 });
 
 /** Moves the traveller to the trash. Documents and trip history are kept until it is emptied. */
-clientsRouter.delete('/:id', requireRole('admin'), async (req, res) => {
+clientsRouter.delete('/:id', requirePermission('travellers', 'delete'), async (req, res) => {
   const client = await requireClient(req.params.id);
   await moveToTrash('client', client.id);
   await audit(currentUser(req), 'client_trashed', 'client', client.id, `${client.first_name} ${client.last_name}`);
   res.json({ ok: true });
 });
 
-clientsRouter.post('/:id/documents', upload.single('file'), async (req, res) => {
+clientsRouter.post('/:id/documents', requirePermission('travellers', 'edit'), upload.single('file'), async (req, res) => {
   const { id: clientId } = await requireClient(req.params.id);
   const input = documentSchema.parse(req.body);
   const user = currentUser(req);
@@ -207,7 +208,7 @@ async function requireLoyalty(clientId: number, rawId: unknown) {
   return membership;
 }
 
-clientsRouter.post('/:id/loyalty', async (req, res) => {
+clientsRouter.post('/:id/loyalty', requirePermission('travellers', 'edit'), async (req, res) => {
   const { id: clientId } = await requireClient(req.params.id);
   const input = loyaltySchema.parse(req.body);
   const id = await createLoyalty(clientId, input);
@@ -215,7 +216,7 @@ clientsRouter.post('/:id/loyalty', async (req, res) => {
   res.status(201).json({ membership: await getLoyalty(id) });
 });
 
-clientsRouter.put('/:id/loyalty/:loyaltyId', async (req, res) => {
+clientsRouter.put('/:id/loyalty/:loyaltyId', requirePermission('travellers', 'edit'), async (req, res) => {
   const { id: clientId } = await requireClient(req.params.id);
   const { id } = await requireLoyalty(clientId, req.params.loyaltyId);
   const input = loyaltySchema.parse(req.body);
@@ -224,7 +225,7 @@ clientsRouter.put('/:id/loyalty/:loyaltyId', async (req, res) => {
   res.json({ membership: await getLoyalty(id) });
 });
 
-clientsRouter.delete('/:id/loyalty/:loyaltyId', async (req, res) => {
+clientsRouter.delete('/:id/loyalty/:loyaltyId', requirePermission('travellers', 'edit'), async (req, res) => {
   const { id: clientId } = await requireClient(req.params.id);
   const membership = await requireLoyalty(clientId, req.params.loyaltyId);
   await deleteLoyalty(membership.id);

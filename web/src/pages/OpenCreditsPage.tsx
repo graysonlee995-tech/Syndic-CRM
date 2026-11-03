@@ -7,9 +7,11 @@ import { api } from '../api';
 import { OpenCreditsTable } from '../components/OpenCreditsTable';
 import { exportQuery, ListFooter, PAGE_SIZE, useCompanyOptions, useListState, useTravellerOptions } from '../components/ListKit';
 import { CREDIT_STATUSES, type OpenCredit } from '../types';
+import { useCan } from '../permissions';
 
 /** Every flight and train taken off a trip as unused credit, by company and traveller. */
 export function OpenCreditsPage() {
+  const can = useCan();
   const list = useListState(true);
   const companies = useCompanyOptions();
   const travellers = useTravellerOptions();
@@ -96,7 +98,7 @@ export function OpenCreditsPage() {
           <OpenCreditsTable credits={data.credits} />
         )}
       </Card>
-      <ListFooter list={list} total={data?.total} noun="credits" exportHref={`/api/open-credits/export?${exportQuery(search)}`} />
+      <ListFooter list={list} total={data?.total} noun="credits" exportHref={can('open_credits', 'export') ? `/api/open-credits/export?${exportQuery(search)}` : undefined} />
     </Stack>
   );
 }
