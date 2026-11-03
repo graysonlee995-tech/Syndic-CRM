@@ -317,7 +317,7 @@ const HANDLERS: Record<string, Handler> = {
         id: c.id,
         name: `${c.first_name} ${c.last_name}`,
         company: c.company_name,
-        company_id: c.company_id,
+        company_ids: c.company_ids,
         nationality: c.nationality,
         date_of_birth: c.date_of_birth,
         phone: c.phone,

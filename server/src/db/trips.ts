@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { column, insert, one, query, run, tx, value } from './index.js';
-import { likePattern, orderBy, timezone, updateRow, type Bindable, type SortDir, type StoredFile } from './repo.js';
+import { CLIENT_COMPANIES_SQL, likePattern, orderBy, timezone, updateRow, type Bindable, type SortDir, type StoredFile } from './repo.js';
 import { dateTimeInTz } from '../lib/dates.js';
 import { QC_STATUS_SQL } from './quality.js';
 
@@ -594,10 +594,9 @@ export async function getTripDetail(id: number, today: string) {
   if (!trip) return undefined;
 
   const travellers = await query(
-    `SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.nationality, c.company_id, co.name AS company_name,
+    `SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.nationality, ${CLIENT_COMPANIES_SQL},
        (SELECT MAX(d.expiry_date) FROM documents d WHERE d.client_id = c.id AND d.type = 'passport') AS passport_expiry
      FROM trip_travellers tt JOIN clients c ON c.id = tt.client_id
-     LEFT JOIN companies co ON co.id = c.company_id
      WHERE tt.trip_id = ? AND c.deleted_at IS NULL
      ORDER BY lower(c.last_name), lower(c.first_name)`,
     [id],

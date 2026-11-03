@@ -12,6 +12,7 @@ import {
   moveToTrash,
   reindexClient,
   timezone,
+  setClientActive,
   updateClient,
   updateDocument,
   type ClientInput,
@@ -81,8 +82,12 @@ const loyaltyProps = {
 const travellerFields = {
   first_name: { type: 'string', description: 'Given name' },
   last_name: { type: 'string' },
-  company_id: { type: 'integer' },
-  company_name: { type: 'string', description: 'Instead of company_id: the exact name of an existing company, or one created in the same batch' },
+  company_ids: { type: 'array', items: { type: 'integer' }, description: 'Every company the traveller belongs to (a traveller can belong to several)' },
+  company_names: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Instead of (or as well as) company_ids: exact names of existing companies, or of ones created in the same batch',
+  },
   date_of_birth: { type: 'string', description: 'YYYY-MM-DD' },
   gender: { type: 'string', enum: ['Male', 'Female', 'Other'] },
   nationality: { type: 'string', description: 'Country code or name, e.g. PK or Pakistan' },
@@ -150,6 +155,9 @@ export const BULK_TOOLS: Tool[] = [
             properties: {
               traveller_id: { type: 'integer' },
               ...travellerFields,
+              active: { type: 'boolean', description: 'false makes the traveller inactive: their documents then raise no expiry alerts; true makes them active again' },
+              add_company_ids: { type: 'array', items: { type: 'integer' }, description: 'Companies to add, keeping the ones the traveller has' },
+              add_company_names: { type: 'array', items: { type: 'string' }, description: 'Companies to add by exact name, keeping the ones the traveller has' },
               add_sabre_entries: { type: 'array', items: { type: 'string' } },
               add_documents: { type: 'array', items: docProps },
               add_frequent_flyer: { type: 'array', items: loyaltyProps },
@@ -274,7 +282,31 @@ const list = (input: Record<string, unknown>, key: string) => (Array.isArray(inp
 const s = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 const sabreText = (lines: unknown) => (Array.isArray(lines) ? lines.map((l) => String(l).replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean).join('\n') : null);
 
-const TRAVELLER_KEYS = Object.keys(travellerFields).filter((k) => k !== 'company_name' && k !== 'sabre_entries') as (keyof ClientInput)[];
+const COMPANY_KEYS_OF_TRAVELLER = ['company_ids', 'company_names', 'company_id', 'company_name'];
+const TRAVELLER_KEYS = Object.keys(travellerFields).filter((k) => !COMPANY_KEYS_OF_TRAVELLER.includes(k) && k !== 'sabre_entries') as (keyof ClientInput)[];
+
+/**
+ * The companies a row names, by id and/or name (single company_id / company_name
+ * are accepted too). Names of companies created in the same batch are returned
+ * separately, to be looked up once they exist.
+ */
+async function rowCompanies(row: Record<string, unknown>, prefix: '' | 'add_', ctx: BatchContext) {
+  const ids = [...(Array.isArray(row[`${prefix}company_ids`]) ? (row[`${prefix}company_ids`] as unknown[]) : []), ...(row[`${prefix}company_id`] ? [row[`${prefix}company_id`]] : [])].map(Number);
+  const names = [
+    ...(Array.isArray(row[`${prefix}company_names`]) ? (row[`${prefix}company_names`] as unknown[]) : []),
+    ...(row[`${prefix}company_name`] ? [row[`${prefix}company_name`]] : []),
+  ].map((n) => String(n).trim()).filter(Boolean);
+  const pending: string[] = [];
+  for (const id of ids) if (!(await getCompany(id))) return { problem: `company #${id} not found` };
+  for (const name of names) {
+    const id = await companyIdByName(name);
+    if (id) ids.push(id);
+    else if (ctx.newCompanyNames.has(name.toUpperCase())) pending.push(name);
+    else return { problem: `company "${name}" not found; add it first or leave it out` };
+  }
+  const given = ids.length > 0 || names.length > 0 || COMPANY_KEYS_OF_TRAVELLER.some((k) => `${prefix}${k}` in row);
+  return { ids: [...new Set(ids)], pending, given };
+}
 
 async function companyIdByName(name: string): Promise<number | null> {
   return (await value<number | undefined>('SELECT id FROM companies WHERE deleted_at IS NULL AND upper(name) = upper(?)', [name.trim()])) ?? null;
@@ -302,17 +334,11 @@ export interface BatchContext {
 // ---------------------------------------------------------------- travellers
 
 async function planTraveller(row: Record<string, unknown>, ctx: BatchContext) {
-  let companyId = (row.company_id as number | undefined) ?? null;
-  let companyNote = '';
-  if (!companyId && row.company_name) {
-    companyId = await companyIdByName(String(row.company_name));
-    if (!companyId) {
-      if (ctx.newCompanyNames.has(String(row.company_name).trim().toUpperCase())) companyNote = `${String(row.company_name).toUpperCase()} (new)`;
-      else return { problem: `company "${row.company_name}" not found; add it first or leave it empty` };
-    }
-  }
-  if (companyId && !(await getCompany(companyId))) return { problem: `company #${companyId} not found` };
-  const parsed = clientSchema.safeParse({ ...Object.fromEntries(TRAVELLER_KEYS.map((k) => [k, row[k]])), company_id: companyId, sabre_entry: sabreText(row.sabre_entries) });
+  const companies = await rowCompanies(row, '', ctx);
+  if (companies.problem) return { problem: companies.problem };
+  const names = await Promise.all((companies.ids ?? []).map(async (id) => (await getCompany(id))?.name ?? `#${id}`));
+  const companyNote = [...names, ...(companies.pending ?? []).map((n) => `${n.toUpperCase()} (new)`)].join(', ');
+  const parsed = clientSchema.safeParse({ ...Object.fromEntries(TRAVELLER_KEYS.map((k) => [k, row[k]])), company_ids: companies.ids, sabre_entry: sabreText(row.sabre_entries) });
   if (!parsed.success) return { problem: zodProblem(parsed.error) };
   const docs = list(row, 'documents').map((d) => documentSchema.safeParse(d));
   const badDoc = docs.find((d) => !d.success);
@@ -323,7 +349,7 @@ async function planTraveller(row: Record<string, unknown>, ctx: BatchContext) {
   return {
     data: parsed.data,
     companyName: companyNote,
-    pendingCompany: companyNote ? String(row.company_name) : null,
+    pendingCompanies: companies.pending ?? [],
     documents: docs.flatMap((d) => (d.success ? [d.data] : [])),
     loyalty: ff.flatMap((f) => (f.success ? [f.data] : [])),
   };
@@ -335,7 +361,7 @@ async function previewCreateTravellers(input: Record<string, unknown>, ctx: Batc
   for (const row of list(input, 'travellers')) {
     const plan = await planTraveller(row, ctx);
     const name = `${s(row.first_name).toUpperCase()} ${s(row.last_name).toUpperCase()}`.trim();
-    const base = [name, s(row.date_of_birth), s(plan.data?.nationality ?? row.nationality), plan.companyName || s(row.company_name ?? (row.company_id ? `#${row.company_id}` : '')), `${plan.documents?.length ?? 0} doc(s)`];
+    const base = [name, s(row.date_of_birth), s(plan.data?.nationality ?? row.nationality), plan.companyName ?? '', `${plan.documents?.length ?? 0} doc(s)`];
     if (!plan.data) {
       rows.push({ cells: base, problem: plan.problem });
       continue;
@@ -360,7 +386,11 @@ async function runCreateTravellers(input: Record<string, unknown>, user: PublicU
       continue;
     }
     const data = { ...plan.data };
-    if (plan.pendingCompany) data.company_id = await companyIdByName(plan.pendingCompany);
+    // Companies created earlier in this batch exist now.
+    for (const pendingName of plan.pendingCompanies ?? []) {
+      const id = await companyIdByName(pendingName);
+      if (id) data.company_ids = [...new Set([...data.company_ids, id])];
+    }
     const key = `${data.first_name}|${data.last_name}|${data.date_of_birth ?? ''}`;
     const dup = seen.has(key) ? 'listed twice in this batch' : await possibleDuplicate(data).then((id) => (id ? `looks like existing traveller ${code(id)}` : ''));
     seen.add(key);
@@ -382,15 +412,26 @@ async function planTravellerUpdate(row: Record<string, unknown>) {
   const current = await getClient(id);
   if (!current) return { problem: `traveller #${row.traveller_id} not found` };
   const changes: Record<string, unknown> = Object.fromEntries(TRAVELLER_KEYS.filter((k) => k in row).map((k) => [k, row[k]]));
-  if (row.company_name !== undefined && row.company_id === undefined) {
-    const companyId = row.company_name ? await companyIdByName(String(row.company_name)) : null;
-    if (row.company_name && !companyId) return { problem: `company "${row.company_name}" not found` };
-    changes.company_id = companyId;
+  // company_ids / company_names replace the list; add_company_ids / add_company_names add to it.
+  const noBatch: BatchContext = { newCompanyNames: new Set() };
+  const replace = await rowCompanies(row, '', noBatch);
+  if (replace.problem) return { problem: replace.problem };
+  const add = await rowCompanies(row, 'add_', noBatch);
+  if (add.problem) return { problem: add.problem };
+  if (replace.given || add.given) {
+    const ids = [...new Set([...(replace.given ? (replace.ids ?? []) : current.company_ids), ...(add.ids ?? [])])];
+    if (ids.join() !== current.company_ids.join()) changes.companies = ids;
   }
   let sabre = current.sabre_entry;
   if (row.sabre_entries !== undefined) sabre = sabreText(row.sabre_entries);
   if (Array.isArray(row.add_sabre_entries)) sabre = [sabre, sabreText(row.add_sabre_entries)].filter(Boolean).join('\n');
-  const merged = { ...Object.fromEntries(TRAVELLER_KEYS.map((k) => [k, current[k]])), ...changes, sabre_entry: sabre };
+  const { companies: newCompanies, ...fieldChanges } = changes;
+  const merged = {
+    ...Object.fromEntries(TRAVELLER_KEYS.map((k) => [k, current[k]])),
+    ...fieldChanges,
+    company_ids: (newCompanies as number[] | undefined) ?? current.company_ids,
+    sabre_entry: sabre,
+  };
   const parsed = clientSchema.safeParse(merged);
   if (!parsed.success) return { problem: zodProblem(parsed.error) };
   const docs = list(row, 'add_documents').map((d) => documentSchema.safeParse(d));
@@ -399,7 +440,9 @@ async function planTravellerUpdate(row: Record<string, unknown>) {
   const ff = list(row, 'add_frequent_flyer').map((f) => loyaltySchema.safeParse(f));
   const badFf = ff.find((f) => !f.success);
   if (badFf && !badFf.success) return { problem: `frequent flyer ${zodProblem(badFf.error)}` };
+  const activeChange = typeof row.active === 'boolean' && row.active !== Boolean(current.is_active) ? (row.active as boolean) : null;
   const what = [
+    ...(activeChange === null ? [] : [activeChange ? 'make active' : 'make inactive']),
     ...Object.keys(changes),
     ...(sabre !== current.sabre_entry ? ['sabre entries'] : []),
     ...(docs.length ? [`+${docs.length} document(s)`] : []),
@@ -410,6 +453,7 @@ async function planTravellerUpdate(row: Record<string, unknown>) {
     name: `${current.first_name} ${current.last_name}`,
     data: parsed.data,
     what,
+    activeChange,
     documents: docs.flatMap((d) => (d.success ? [d.data] : [])),
     loyalty: ff.flatMap((f) => (f.success ? [f.data] : [])),
   };
@@ -437,6 +481,7 @@ async function runUpdateTravellers(input: Record<string, unknown>, user: PublicU
       continue;
     }
     await updateClient(plan.id, plan.data);
+    if (plan.activeChange !== null && plan.activeChange !== undefined) await setClientActive(plan.id, plan.activeChange);
     for (const d of plan.documents ?? []) await createDocument(plan.id, d, null, user.id);
     for (const f of plan.loyalty ?? []) await createLoyalty(plan.id, f);
     await reindexClient(plan.id);

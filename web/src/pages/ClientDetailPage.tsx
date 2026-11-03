@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActionIcon,
   Anchor,
+  Badge,
   Button,
   Card,
   Collapse,
@@ -16,7 +17,7 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core';
-import { IconEdit, IconEye, IconPlus, IconTrash, IconPaperclip } from '@tabler/icons-react';
+import { IconEdit, IconEye, IconPlus, IconTrash, IconPaperclip, IconUserCheck, IconUserOff } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, notifyError, notifySuccess, queryClient } from '../api';
@@ -136,6 +137,17 @@ export function ClientDetailPage() {
     onError: notifyError,
   });
 
+  const setActive = useMutation({
+    mutationFn: (active: boolean) => api(`/travellers/${id}/status`, { method: 'PUT', body: { active } }),
+    onSuccess: (_r, active) => {
+      queryClient.invalidateQueries({ queryKey: ['client', id] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      notifySuccess(active ? 'Traveller is active again: their alerts are back on' : 'Traveller is inactive: no alerts for them');
+    },
+    onError: notifyError,
+  });
+
   const deleteDocument = useMutation({
     mutationFn: (docId: number) => api(`/documents/${docId}`, { method: 'DELETE' }),
     onSuccess: () => {
@@ -165,26 +177,53 @@ export function ClientDetailPage() {
         <div>
           <Text size="sm" c="dimmed">
             Traveller {travellerCode(client.id)}
-            {client.company_id && (
-              <>
+            {client.companies.map((co) => (
+              <span key={co.id}>
                 {' · '}
-                <Anchor component={Link} to={`/companies/${client.company_id}`} size="sm">
-                  {client.company_name}
+                <Anchor component={Link} to={`/companies/${co.id}`} size="sm">
+                  {co.name}
                 </Anchor>
-              </>
-            )}
+              </span>
+            ))}
           </Text>
-          <Title order={2}>
-            {client.first_name} {client.last_name}
-          </Title>
+          <Group gap="sm">
+            <Title order={2}>
+              {client.first_name} {client.last_name}
+            </Title>
+            {!client.is_active && (
+              <Tooltip label="No document expiry or birthday alerts until they are active again">
+                <Badge color="gray" variant="light" size="lg">
+                  Inactive
+                </Badge>
+              </Tooltip>
+            )}
+          </Group>
         </div>
         <Group>
-          <Button component={Link} to={`/trips/new?travellerId=${client.id}${client.company_id ? `&companyId=${client.company_id}` : ''}`} variant="light" leftSection={<IconPlus size={16} />} display={can('trips', 'add') ? undefined : 'none'}>
+          <Button component={Link} to={`/trips/new?travellerId=${client.id}${client.company_ids.length === 1 ? `&companyId=${client.company_ids[0]}` : ''}`} variant="light" leftSection={<IconPlus size={16} />} display={can('trips', 'add') ? undefined : 'none'}>
             Add trip
           </Button>
           <Button component={Link} to={`/travellers/${client.id}/edit`} variant="default" leftSection={<IconEdit size={16} />} display={can('travellers', 'edit') ? undefined : 'none'}>
             Edit
           </Button>
+          {can('travellers', 'edit') && (
+            <Tooltip
+              label={
+                client.is_active
+                  ? 'Stop document expiry and birthday alerts for them (e.g. no longer travelling with us)'
+                  : 'Show their document expiry and birthday alerts again'
+              }
+            >
+              <Button
+                variant="default"
+                leftSection={client.is_active ? <IconUserOff size={16} /> : <IconUserCheck size={16} />}
+                loading={setActive.isPending}
+                onClick={() => setActive.mutate(!client.is_active)}
+              >
+                {client.is_active ? 'Mark inactive' : 'Mark active'}
+              </Button>
+            </Tooltip>
+          )}
           {can('travellers', 'delete') && (
             <Button
               color="red"
@@ -212,7 +251,7 @@ export function ClientDetailPage() {
           <Field label="Date of birth" value={formatDate(client.date_of_birth)} />
           <Field label="Gender" value={client.gender} />
           <Field label="Nationality" value={client.nationality} />
-          <Field label="Company" value={client.company_name} />
+          <Field label="Companies" value={client.company_name} />
           <Field label="Last updated" value={formatTimestamp(client.updated_at)} />
         </SimpleGrid>
       </Card>

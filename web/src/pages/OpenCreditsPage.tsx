@@ -36,7 +36,7 @@ export function OpenCreditsPage() {
   const travellerData = useMemo(
     () =>
       (travellers.data ?? [])
-        .filter((t) => !companyId || String(t.company_id) === companyId)
+        .filter((t) => !companyId || t.company_ids.includes(Number(companyId)))
         .map((t) => ({ value: String(t.id), label: `${t.first_name} ${t.last_name}` })),
     [travellers.data, companyId],
   );

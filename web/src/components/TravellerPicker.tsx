@@ -37,10 +37,11 @@ export function TravellerPicker({ value, onChange, companyId }: Props) {
     const selected = new Set(value);
     return all
       // Already-selected travellers always stay listed, so their names still show.
-      .filter((t) => !companyId || String(t.company_id) === companyId || selected.has(String(t.id)))
+      .filter((t) => !companyId || t.company_ids.includes(Number(companyId)) || selected.has(String(t.id)))
       .map((t) => ({
         value: String(t.id),
-        label: `${fullName(t)}${t.company_name && String(t.company_id) !== companyId ? ` (${t.company_name})` : ''}`,
+        // Without a company chosen, the traveller's companies help tell people apart.
+        label: `${fullName(t)}${t.company_name && !(companyId && t.company_ids.includes(Number(companyId))) ? ` (${t.company_name})` : ''}`,
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [options.data, created, companyId, value]);

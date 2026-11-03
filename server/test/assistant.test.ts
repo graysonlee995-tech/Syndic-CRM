@@ -62,7 +62,7 @@ const tripInput = {
 beforeAll(async () => {
   const user = await createUser({ name: 'Agent', email: 'agent@test.com', passwordHash: bcrypt.hashSync(PASSWORD, 4), role: 'staff' });
   await createUser({ name: 'Boss', email: 'boss@test.com', passwordHash: bcrypt.hashSync(PASSWORD, 4), role: 'admin' });
-  const empty = { company_id: null, date_of_birth: null, gender: null, nationality: null, phone: null, email: null, address_line: null, state: null, city: null, country: null, seat_preference: null, meal_preference: null, cabin_preference: null, special_requirements: null, notes: null, sabre_entry: null };
+  const empty = { company_ids: [] as number[], date_of_birth: null, gender: null, nationality: null, phone: null, email: null, address_line: null, state: null, city: null, country: null, seat_preference: null, meal_preference: null, cabin_preference: null, special_requirements: null, notes: null, sabre_entry: null };
   travellerId = await createClient({ ...empty, first_name: 'Hina', last_name: 'Raza' }, user);
 });
 
@@ -213,6 +213,44 @@ describe('assistant', () => {
 
   it('requires sign-in', async () => {
     expect((await request(app).post('/api/assistant/chat').send({ messages: [] })).status).toBe(401);
+  });
+});
+
+describe('chat history', () => {
+  it("saves each employee's chats, lets them continue, rename and delete them, and shows admins everyone's", async () => {
+    const agent = await signIn();
+    create.mockResolvedValueOnce(reply([text('Hello Agent.')]));
+    const first = await agent.post('/api/assistant/chat').send({ messages: [{ role: 'user', content: 'Which trips leave this week?\nThanks' }] });
+    const chatId = first.body.chatId;
+    expect(chatId).toEqual(expect.any(Number));
+
+    create.mockResolvedValueOnce(reply([text('None.')]));
+    const messages = [...first.body.messages, { role: 'user', content: 'And next week?' }];
+    expect((await agent.post('/api/assistant/chat').send({ messages, chatId })).body.chatId).toBe(chatId);
+
+    const mine = (await agent.get('/api/assistant/chats')).body.chats;
+    // Newest first; earlier tests in this file saved chats for this employee too.
+    expect(mine[0]).toMatchObject({ id: chatId, title: 'Which trips leave this week?', user_name: 'Agent' });
+    const opened = (await agent.get(`/api/assistant/chats/${chatId}`)).body;
+    expect(opened.readOnly).toBe(false);
+    expect(opened.chat.messages).toHaveLength(4);
+
+    // Another employee can neither see nor continue it; an admin can read it, read-only.
+    const boss = await signIn('boss@test.com');
+    expect((await boss.get('/api/assistant/chats')).body.chats.map((c: { id: number }) => c.id)).not.toContain(chatId);
+    const all = (await boss.get('/api/assistant/chats').query({ all: 1 })).body.chats;
+    expect(all.find((c: { id: number }) => c.id === chatId)).toMatchObject({ user_name: 'Agent' });
+    expect((await boss.get(`/api/assistant/chats/${chatId}`)).body.readOnly).toBe(true);
+    expect((await boss.post('/api/assistant/chat').send({ messages, chatId })).status).toBe(403);
+    expect((await agent.get('/api/assistant/chats').query({ all: 1 })).body.chats.every((c: { user_name: string }) => c.user_name === 'Agent')).toBe(true);
+
+    await agent.put(`/api/assistant/chats/${chatId}`).send({ title: 'Weekly trips' });
+    expect((await agent.get('/api/assistant/chats')).body.chats[0].title).toBe('Weekly trips');
+    await agent.delete(`/api/assistant/chats/${chatId}`);
+    expect((await agent.get('/api/assistant/chats')).body.chats.map((c: { id: number }) => c.id)).not.toContain(chatId);
+    expect((await agent.get(`/api/assistant/chats/${chatId}`)).status).toBe(404);
+    const stillThere = (await boss.get('/api/assistant/chats').query({ all: 1 })).body.chats.find((c: { id: number }) => c.id === chatId);
+    expect(stillThere).toMatchObject({ hidden: true });
   });
 });
 

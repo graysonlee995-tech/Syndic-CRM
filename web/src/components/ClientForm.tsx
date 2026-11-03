@@ -14,15 +14,15 @@ import {
   type ContactsValue,
 } from './ExtraContacts';
 import { CountrySelect } from './CountrySelect';
-import { CompanyPicker } from './CompanyPicker';
+import { CompanyMultiPicker } from './CompanyMultiPicker';
 import { SabreEntriesInput } from './SabreEntries';
 
-type FormValues = Record<Exclude<keyof ClientInput, 'company_id'>, string> & { company_id: string };
+type FormValues = Record<Exclude<keyof ClientInput, 'company_ids'>, string> & { company_ids: string[] };
 
 const EMPTY: FormValues = {
   first_name: '',
   last_name: '',
-  company_id: '',
+  company_ids: [],
   date_of_birth: '',
   gender: '',
   nationality: '',
@@ -43,7 +43,7 @@ const EMPTY: FormValues = {
 interface Props {
   /** Edit this traveller; omit to create one. */
   clientId?: string;
-  /** Company of a new traveller ('' for none). */
+  /** A company a new traveller starts in ('' for none). */
   initialCompanyId?: string;
   /** Pre-fills a new traveller's name (e.g. what was typed in a traveller search). */
   initialName?: string;
@@ -61,7 +61,11 @@ const splitName = (name: string) => {
 
 /** Traveller add/edit form, used on the Travellers pages and in the "Add traveller" pop-up. Travellers are stored as clients. */
 export function ClientForm({ clientId, initialCompanyId = '', initialName = '', onSaved, onCancel, inModal = false }: Props) {
-  const [form, setForm] = useState<FormValues>(() => ({ ...EMPTY, ...splitName(initialName.toUpperCase()), company_id: initialCompanyId }));
+  const [form, setForm] = useState<FormValues>(() => ({
+    ...EMPTY,
+    ...splitName(initialName.toUpperCase()),
+    company_ids: initialCompanyId ? [initialCompanyId] : [],
+  }));
   const [contacts, setContacts] = useState<ContactsValue>(emptyContacts);
 
   const existing = useQuery({
@@ -73,14 +77,17 @@ export function ClientForm({ clientId, initialCompanyId = '', initialName = '', 
   useEffect(() => {
     const c = existing.data?.client;
     if (c) {
-      setForm(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, String(c[k as keyof ClientInput] ?? '')])) as FormValues);
+      setForm({
+        ...(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, String(c[k as keyof ClientInput] ?? '')])) as unknown as FormValues),
+        company_ids: c.company_ids.map(String),
+      });
       setContacts(contactsToForm(existing.data?.contacts));
     }
   }, [existing.data]);
 
   const save = useMutation({
     mutationFn: () => {
-      const body = { ...form, company_id: form.company_id ? Number(form.company_id) : null, ...contactsToBody(contacts) };
+      const body = { ...form, company_ids: form.company_ids.map(Number), ...contactsToBody(contacts) };
       return clientId
         ? api<{ client: Client }>(`/travellers/${clientId}`, { method: 'PUT', body })
         : api<{ client: Client }>('/travellers', { body });
@@ -98,7 +105,7 @@ export function ClientForm({ clientId, initialCompanyId = '', initialName = '', 
 
   if (clientId && existing.isLoading) return <Loader />;
 
-  const field = (key: keyof FormValues) => ({
+  const field = (key: Exclude<keyof FormValues, 'company_ids'>) => ({
     value: form[key],
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       const { value } = e.currentTarget;
@@ -112,7 +119,7 @@ export function ClientForm({ clientId, initialCompanyId = '', initialName = '', 
       setForm((f) => ({ ...f, [key]: value }));
     },
   });
-  const select = (key: keyof FormValues) => ({
+  const select = (key: Exclude<keyof FormValues, 'company_ids'>) => ({
     value: form[key] || null,
     onChange: (v: string | null) => setForm((f) => ({ ...f, [key]: v ?? '' })),
   });
@@ -147,11 +154,7 @@ export function ClientForm({ clientId, initialCompanyId = '', initialName = '', 
             {/* Names are kept in capitals (the server converts them too). */}
             <TextInput label="Given name" required placeholder="e.g. JOHN" {...upper('first_name')} data-autofocus autoFocus={!inModal} />
             <TextInput label="Last name" required placeholder="e.g. SMITH" {...upper('last_name')} />
-            <CompanyPicker
-              value={form.company_id}
-              onChange={(company_id) => setForm((f) => ({ ...f, company_id }))}
-              placeholder="No company (individual)"
-            />
+            <CompanyMultiPicker value={form.company_ids} onChange={(company_ids) => setForm((f) => ({ ...f, company_ids }))} />
             <TextInput label="Date of birth" type="date" {...field('date_of_birth')} />
             <Select label="Gender" clearable placeholder="Select" data={['Male', 'Female', 'Other']} {...select('gender')} />
             <CountrySelect label="Nationality" value={form.nationality} onChange={(nationality) => setForm((f) => ({ ...f, nationality }))} />

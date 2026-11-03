@@ -289,7 +289,7 @@ export function TripFormPage() {
   const setCompany = (company_id: string) => {
     setForm((f) => ({ ...f, company_id }));
     if (company_id && travellerOptions.data) {
-      const own = new Set(travellerOptions.data.filter((t) => String(t.company_id) === company_id).map((t) => String(t.id)));
+      const own = new Set(travellerOptions.data.filter((t) => t.company_ids.includes(Number(company_id))).map((t) => String(t.id)));
       setTravellerIds((ids) => ids.filter((tid) => own.has(tid)));
     }
   };

@@ -230,7 +230,8 @@ export async function purgeIdleSessions(idleHours: number): Promise<void> {
 export interface ClientInput {
   first_name: string;
   last_name: string;
-  company_id: number | null;
+  /** Every company the traveller belongs to (all equal). */
+  company_ids: number[];
   date_of_birth: string | null;
   gender: string | null;
   nationality: string | null;
@@ -251,6 +252,8 @@ export interface ClientInput {
 
 export interface ClientRow extends ClientInput {
   id: number;
+  /** 1 = active, 0 = inactive (no document expiry alerts). */
+  is_active: number;
   created_by: number | null;
   created_at: string;
   updated_at: string;
@@ -260,7 +263,6 @@ export interface ClientRow extends ClientInput {
 const CLIENT_FIELDS = [
   'first_name',
   'last_name',
-  'company_id',
   'date_of_birth',
   'gender',
   'nationality',
@@ -312,34 +314,64 @@ export async function reindexClient(id: number): Promise<void> {
   await run('UPDATE clients SET search_text = ? WHERE id = ?', [text, id]);
 }
 
+/** Replaces the companies a traveller belongs to. */
+async function setClientCompanies(clientId: number, companyIds: number[]): Promise<void> {
+  await run('DELETE FROM client_companies WHERE client_id = ?', [clientId]);
+  for (const companyId of new Set(companyIds)) {
+    await run('INSERT INTO client_companies (client_id, company_id) VALUES (?, ?) ON CONFLICT DO NOTHING', [clientId, companyId]);
+  }
+}
+
+/**
+ * Columns for a traveller's live companies (for `clients c`): company_ids, the
+ * companies as {id, name}, and company_name as "ABC, XYZ" for lists and exports.
+ */
+export const CLIENT_COMPANIES_SQL = `
+  COALESCE((SELECT array_agg(cc.company_id ORDER BY lower(co2.name)) FROM client_companies cc
+    JOIN companies co2 ON co2.id = cc.company_id AND co2.deleted_at IS NULL WHERE cc.client_id = c.id), '{}') AS company_ids,
+  COALESCE((SELECT json_agg(json_build_object('id', co2.id, 'name', co2.name) ORDER BY lower(co2.name)) FROM client_companies cc
+    JOIN companies co2 ON co2.id = cc.company_id AND co2.deleted_at IS NULL WHERE cc.client_id = c.id), '[]') AS companies,
+  (SELECT string_agg(co2.name, ', ' ORDER BY lower(co2.name)) FROM client_companies cc
+    JOIN companies co2 ON co2.id = cc.company_id AND co2.deleted_at IS NULL WHERE cc.client_id = c.id) AS company_name`;
+
 export function createClient(input: ClientInput, userId: number): Promise<number> {
   return tx(async () => {
     const id = await insert(
       `INSERT INTO clients (${CLIENT_FIELDS.join(', ')}, created_by)
        VALUES (${CLIENT_FIELDS.map((f) => '@' + f).join(', ')}, @created_by)`,
-      { ...input, created_by: userId },
+      { ...Object.fromEntries(CLIENT_FIELDS.map((f) => [f, input[f]])), created_by: userId },
     );
+    await setClientCompanies(id, input.company_ids ?? []);
     await reindexClient(id);
     return id;
   });
 }
 
+/** Active travellers get document expiry alerts; inactive ones don't. */
+export async function setClientActive(id: number, active: boolean): Promise<void> {
+  await run('UPDATE clients SET is_active = ?, updated_at = now() WHERE id = ?', [active ? 1 : 0, id]);
+}
+
 export function updateClient(id: number, input: ClientInput): Promise<void> {
   return tx(async () => {
     await updateRow('clients', id, { ...input }, CLIENT_FIELDS);
+    await setClientCompanies(id, input.company_ids ?? []);
     await reindexClient(id);
   });
 }
 
 export interface ClientWithCompany extends ClientRow {
+  /** The traveller's companies, by name. */
+  companies: { id: number; name: string }[];
+  /** All company names, e.g. "ABC CORPORATION, XYZ LTD", or null. */
   company_name: string | null;
 }
 
 /** Trashed travellers are hidden unless `includeDeleted` is set. */
 export async function getClient(id: number, includeDeleted = false): Promise<ClientWithCompany | undefined> {
   const row = await one<ClientWithCompany & { search_text: string }>(
-    `SELECT c.*, co.name AS company_name
-     FROM clients c LEFT JOIN companies co ON co.id = c.company_id
+    `SELECT c.*, ${CLIENT_COMPANIES_SQL}
+     FROM clients c
      WHERE c.id = ? AND (c.deleted_at IS NULL OR ?::boolean)`,
     [id, includeDeleted],
   );
@@ -362,15 +394,15 @@ export interface ClientOption {
   id: number;
   first_name: string;
   last_name: string;
-  company_id: number | null;
+  company_ids: number[];
   company_name: string | null;
 }
 
 /** Options for pickers (traveller selects on trips, hotels, cars, cruises). */
 export function listClientOptions(): Promise<ClientOption[]> {
   return query<ClientOption>(
-    `SELECT c.id, c.first_name, c.last_name, c.company_id, co.name AS company_name
-     FROM clients c LEFT JOIN companies co ON co.id = c.company_id
+    `SELECT c.id, c.first_name, c.last_name, ${CLIENT_COMPANIES_SQL}
+     FROM clients c
      WHERE c.deleted_at IS NULL
      ORDER BY lower(c.last_name), lower(c.first_name)`,
   );
@@ -395,6 +427,8 @@ const CATEGORY_SQL = `CASE WHEN c.date_of_birth IS NULL THEN 'unknown'
 export interface ClientSearch {
   terms: string[];
   dob: string | null;
+  /** Only active or only inactive travellers. */
+  status?: 'active' | 'inactive' | null;
   /** Only travellers in this passenger category. */
   category?: PassengerCategory | null;
   nationality: string | null;
@@ -443,12 +477,13 @@ export async function searchClients(s: ClientSearch): Promise<{ rows: ClientList
     where.push('lower(c.nationality) = lower(@nationality)');
     params.nationality = s.nationality;
   }
+  if (s.status) where.push(s.status === 'active' ? 'c.is_active = 1' : 'c.is_active = 0');
   if (s.docType) {
     where.push('EXISTS (SELECT 1 FROM documents d WHERE d.client_id = c.id AND d.type = @docType)');
     params.docType = s.docType;
   }
   if (s.companyId) {
-    where.push('c.company_id = @companyId');
+    where.push('EXISTS (SELECT 1 FROM client_companies cc WHERE cc.client_id = c.id AND cc.company_id = @companyId)');
     params.companyId = s.companyId;
   }
   const cutoffs = categoryCutoffs(s.today);
@@ -460,12 +495,12 @@ export async function searchClients(s: ClientSearch): Promise<{ rows: ClientList
 
   const rows = await query<ClientListRow & { search_text: string }>(
     `SELECT * FROM (
-       SELECT c.*, co.name AS company_name, ${CATEGORY_SQL} AS category,
+       SELECT c.*, ${CLIENT_COMPANIES_SQL}, ${CATEGORY_SQL} AS category,
          (SELECT COUNT(*) FROM documents d WHERE d.client_id = c.id) AS document_count,
          (SELECT MIN(expiry_date) FROM documents d WHERE d.client_id = c.id AND d.expiry_date IS NOT NULL) AS earliest_expiry,
          (SELECT COUNT(*) FROM trip_travellers tt JOIN trips t ON t.id = tt.trip_id
           WHERE tt.client_id = c.id AND ${UPCOMING_TRIP}) AS upcoming_trips
-       FROM clients c LEFT JOIN companies co ON co.id = c.company_id
+       FROM clients c
        ${whereSql}
      ) s
      ORDER BY ${orderBy(CLIENT_SORTS, s.sort, s.dir, 'name')}
@@ -685,6 +720,8 @@ export function documentsExpiringBy(until: string): Promise<ExpiringDocument[]> 
     `SELECT d.id, d.client_id, d.type, d.other_type, d.document_number, d.expiry_date, c.first_name, c.last_name
      FROM documents d JOIN clients c ON c.id = d.client_id
      WHERE d.expiry_date IS NOT NULL AND d.expiry_date <= ? AND c.deleted_at IS NULL
+       -- Inactive travellers' documents raise no alerts until they are active again.
+       AND c.is_active = 1
      ORDER BY d.expiry_date, lower(c.last_name)`,
     [until],
   );
@@ -722,7 +759,7 @@ export interface BirthdayClient {
 export function clientsWithBirthdays(): Promise<BirthdayClient[]> {
   return query<BirthdayClient>(
     `SELECT id, first_name, last_name, date_of_birth, phone, email
-     FROM clients WHERE date_of_birth IS NOT NULL AND deleted_at IS NULL`,
+     FROM clients WHERE date_of_birth IS NOT NULL AND deleted_at IS NULL AND is_active = 1`,
   );
 }
 

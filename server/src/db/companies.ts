@@ -106,7 +106,8 @@ export async function searchCompanies(s: CompanySearch): Promise<{ rows: Company
   const rows = await query<CompanyListRow>(
     `SELECT * FROM (
        SELECT co.*,
-         (SELECT COUNT(*) FROM clients c WHERE c.company_id = co.id AND c.deleted_at IS NULL) AS traveller_count,
+         (SELECT COUNT(*) FROM client_companies cc JOIN clients c ON c.id = cc.client_id
+          WHERE cc.company_id = co.id AND c.deleted_at IS NULL) AS traveller_count,
          (SELECT COUNT(*) FROM trips t WHERE t.company_id = co.id AND t.deleted_at IS NULL
             AND t.status != 'cancelled' AND t.departure_date > @today) AS upcoming_trips
        FROM companies co ${whereSql}

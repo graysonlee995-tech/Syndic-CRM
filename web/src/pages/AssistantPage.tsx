@@ -9,6 +9,7 @@ import {
   Card,
   CloseButton,
   Code,
+  Drawer,
   FileButton,
   Group,
   Loader,
@@ -27,6 +28,7 @@ import {
   IconCheck,
   IconFileSpreadsheet,
   IconFileTypePdf,
+  IconMessages,
   IconPaperclip,
   IconPhoto,
   IconPlus,
@@ -36,6 +38,7 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
+import { ChatHistory } from '../components/ChatHistory';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { api, notifyError, queryClient, useAppConfig } from '../api';
@@ -78,6 +81,8 @@ interface ChatResponse {
   messages: ChatMessage[];
   pending?: PendingAction[];
   notice?: string;
+  /** The saved chat this conversation is stored as. */
+  chatId: number;
 }
 
 interface ChatState {
@@ -86,9 +91,13 @@ interface ChatState {
   notice: string | null;
   /** Attachment file id -> file name, to show which files a message carried. */
   files: Record<string, string>;
+  /** The saved chat being shown; null for a new one not sent yet. */
+  chatId: number | null;
+  /** Set when an admin reads another employee's chat: their name, and the chat can't be continued. */
+  readOnlyOwner: string | null;
 }
 
-const EMPTY: ChatState = { messages: [], pending: [], notice: null, files: {} };
+const EMPTY: ChatState = { messages: [], pending: [], notice: null, files: {}, chatId: null, readOnlyOwner: null };
 const STORAGE_KEY = 'syndic-assistant-chat';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -232,6 +241,7 @@ export function AssistantPage() {
   const [decisions, setDecisions] = useState<Record<string, boolean>>({});
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(0);
+  const [drawer, setDrawer] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -250,12 +260,13 @@ export function AssistantPage() {
     }
   }
 
-  async function send(body: { messages: ChatMessage[]; decisions?: Record<string, boolean> }, onError?: () => void) {
+  async function send(body: { messages: ChatMessage[]; decisions?: Record<string, boolean>; files?: Record<string, string> }, onError?: () => void) {
     setBusy(true);
     try {
-      const res = await api<ChatResponse>('/assistant/chat', { body });
-      setChat((c) => ({ ...c, messages: res.messages, pending: res.pending ?? [], notice: res.notice ?? null }));
+      const res = await api<ChatResponse>('/assistant/chat', { body: { ...body, chatId: chat.chatId ?? undefined, files: body.files ?? chat.files } });
+      setChat((c) => ({ ...c, messages: res.messages, pending: res.pending ?? [], notice: res.notice ?? null, chatId: res.chatId }));
       setDecisions({});
+      queryClient.invalidateQueries({ queryKey: ['assistant-chats'] });
       // The assistant may have changed records shown elsewhere.
       if (body.decisions && Object.values(body.decisions).some(Boolean)) {
         for (const key of ['trips', 'trip', 'companies', 'company', 'clients', 'client', 'dashboard', 'quality', 'trash']) {
@@ -288,7 +299,7 @@ export function AssistantPage() {
 
   function ask(text: string) {
     const question = text.trim() || (attachments.length ? 'Please read the attached file(s).' : '');
-    if (!question || busy || uploading || chat.pending.length) return;
+    if (!question || busy || uploading || chat.pending.length || chat.readOnlyOwner) return;
     const sent = attachments;
     const content: ChatMessage['content'] = sent.length ? [...sent.map((a) => a.block), { type: 'text', text: question }] : question;
     const files = { ...chat.files };
@@ -297,12 +308,39 @@ export function AssistantPage() {
     setChat({ ...chat, messages, notice: null, files });
     setInput('');
     setAttachments([]);
-    send({ messages }, () => {
+    send({ messages, files }, () => {
       // Put the question and files back so they can be retried.
       setChat((c) => ({ ...c, messages: c.messages.slice(0, -1) }));
       setInput(question);
       setAttachments(sent);
     });
+  }
+
+  function startNew() {
+    setChat(EMPTY);
+    setDecisions({});
+    setAttachments([]);
+    setDrawer(false);
+  }
+
+  async function openChat(id: number) {
+    setDrawer(false);
+    if (id === chat.chatId) return;
+    try {
+      const res = await api<{ chat: ChatState & { id: number; user_name: string | null }; readOnly: boolean }>(`/assistant/chats/${id}`);
+      setChat({
+        messages: res.chat.messages,
+        pending: res.chat.pending,
+        notice: res.chat.notice,
+        files: res.chat.files,
+        chatId: res.chat.id,
+        readOnlyOwner: res.readOnly ? (res.chat.user_name ?? 'a former employee') : null,
+      });
+      setDecisions({});
+      setAttachments([]);
+    } catch (err) {
+      notifyError(err);
+    }
   }
 
   function decide(id: string, approved: boolean) {
@@ -326,27 +364,36 @@ export function AssistantPage() {
     );
   }
 
+  const history = <ChatHistory activeId={chat.chatId} onOpen={openChat} onNew={startNew} />;
   return (
-    <Stack h="calc(100dvh - 56px - 2 * var(--mantine-spacing-lg))" gap="sm" maw={1000}>
+    <Group h="calc(100dvh - 56px - 2 * var(--mantine-spacing-lg))" gap="md" align="stretch" wrap="nowrap" maw={1300}>
+      <Paper withBorder p="sm" w={270} visibleFrom="md" style={{ flexShrink: 0 }}>
+        {history}
+      </Paper>
+      <Drawer opened={drawer} onClose={() => setDrawer(false)} title="Chats" size={300}>
+        <div style={{ height: 'calc(100dvh - 90px)' }}>{history}</div>
+      </Drawer>
+    <Stack gap="sm" style={{ flex: 1, minWidth: 0 }}>
       <Group justify="space-between">
         <Group gap="xs">
           <IconSparkles size={24} color="var(--mantine-primary-color-filled)" />
           <Title order={2}>Assistant</Title>
         </Group>
-        <Button
-          variant="default"
-          size="xs"
-          leftSection={<IconPlus size={14} />}
-          disabled={busy || chat.messages.length === 0}
-          onClick={() => {
-            setChat(EMPTY);
-            setDecisions({});
-            setAttachments([]);
-          }}
-        >
-          New chat
-        </Button>
+        <Group gap="xs">
+          <Button variant="default" size="xs" leftSection={<IconMessages size={14} />} hiddenFrom="md" onClick={() => setDrawer(true)}>
+            Chats
+          </Button>
+          {/* On wide screens "New chat" is at the top of the chat list. */}
+          <Button variant="default" size="xs" leftSection={<IconPlus size={14} />} hiddenFrom="md" disabled={busy || chat.messages.length === 0} onClick={startNew}>
+            New chat
+          </Button>
+        </Group>
       </Group>
+      {chat.readOnlyOwner && (
+        <Alert color="blue" py="xs">
+          Chat by <b>{chat.readOnlyOwner}</b>. You can read it but not continue it.
+        </Alert>
+      )}
 
       <Card withBorder p={0} style={{ flex: 1, minHeight: 0 }}>
         <ScrollArea h="100%" p="md">
@@ -429,7 +476,7 @@ export function AssistantPage() {
                 );
               })}
 
-              {chat.pending.length > 0 && !busy && (
+              {chat.pending.length > 0 && !busy && !chat.readOnlyOwner && (
                 <Stack gap="xs">
                   {chat.pending.map((p) => {
                     const buttons =
@@ -542,7 +589,7 @@ export function AssistantPage() {
             minRows={1}
             maxRows={6}
             value={input}
-            disabled={chat.pending.length > 0}
+            disabled={chat.pending.length > 0 || Boolean(chat.readOnlyOwner)}
             onChange={(e) => setInput(e.currentTarget.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -566,5 +613,6 @@ export function AssistantPage() {
         </Text>
       </form>
     </Stack>
+    </Group>
   );
 }

@@ -67,9 +67,13 @@ const upperName = (max: number) =>
     .max(max)
     .transform((v) => v.toUpperCase());
 
-export const clientSchema = z.object({
+export const clientSchema = z
+  .object({
   first_name: upperName(100),
   last_name: upperName(100),
+  /** Every company the traveller belongs to. */
+  company_ids: idList,
+  /** A single company, as older screens and the assistant may send; added to company_ids. */
   company_id: optId,
   date_of_birth: optDate,
   gender: optText(20),
@@ -86,7 +90,8 @@ export const clientSchema = z.object({
   special_requirements: optText(2000),
   sabre_entry: optText(5000),
   notes: optText(5000),
-});
+  })
+  .transform(({ company_id, ...c }) => ({ ...c, company_ids: [...new Set([...c.company_ids, ...(company_id ? [company_id] : [])])] }));
 
 /**
  * Extra emails, phone numbers and addresses sent with a company or traveller form.

@@ -19,6 +19,7 @@ import {
   updateLoyalty,
   timezone,
   PASSENGER_CATEGORIES,
+  setClientActive,
 } from '../db/repo.js';
 import { getCompany } from '../db/companies.js';
 import { contactSummaries, listContacts, replaceContacts } from '../db/contacts.js';
@@ -44,10 +45,11 @@ const searchSchema = pagingSchema.merge(sortSchema).extend({
   docType: z.enum(DOCUMENT_TYPES).optional(),
   companyId: optId,
   category: z.enum(PASSENGER_CATEGORIES).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
 });
 
-async function assertCompany(companyId: number | null): Promise<void> {
-  if (companyId !== null && !(await getCompany(companyId))) throw new HttpError(400, 'company_id: company not found');
+async function assertCompanies(companyIds: number[]): Promise<void> {
+  for (const id of companyIds) if (!(await getCompany(id))) throw new HttpError(400, `company_ids: company #${id} not found`);
 }
 
 async function requireClient(rawId: unknown) {
@@ -67,6 +69,7 @@ async function searchFrom(query: z.infer<typeof searchSchema>, limit: number, of
     nationality: query.nationality,
     docType: query.docType ?? null,
     category: query.category ?? null,
+    status: query.status ?? null,
     companyId: query.companyId,
     sort: query.sort ?? null,
     dir: query.dir,
@@ -96,10 +99,11 @@ clientsRouter.get('/export', requirePermission('travellers', 'export'), async (r
         { header: 'ID', key: 'code', width: 10 },
         { header: 'Given name', key: 'first_name', width: 16 },
         { header: 'Last name', key: 'last_name', width: 16 },
-        { header: 'Company', key: 'company_name', width: 24 },
+        { header: 'Companies', key: 'company_name', width: 30 },
         { header: 'Nationality', key: 'nationality', width: 14 },
         { header: 'Date of birth', key: 'date_of_birth', width: 14 },
         { header: 'Passenger', key: 'passenger', width: 11 },
+        { header: 'Status', key: 'status', width: 10 },
         { header: 'Gender', key: 'gender' },
         { header: 'Phone', key: 'phone', width: 18 },
         { header: 'Extra emails', key: 'extra_emails', width: 30 },
@@ -125,6 +129,7 @@ clientsRouter.get('/export', requirePermission('travellers', 'export'), async (r
         ...c,
         code: `T-${String(c.id).padStart(4, '0')}`,
         passenger: c.category === 'unknown' ? '' : c.category[0].toUpperCase() + c.category.slice(1),
+        status: c.is_active ? 'Active' : 'Inactive',
         extra_emails: extras.get(c.id)?.emails,
         extra_phones: extras.get(c.id)?.phones,
         extra_addresses: extras.get(c.id)?.addresses,
@@ -141,7 +146,7 @@ clientsRouter.post('/', requirePermission('travellers', 'add'), async (req, res)
   const user = currentUser(req);
   const input = clientSchema.parse(req.body);
   const { emails, phones, addresses } = contactsSchema.parse(req.body);
-  await assertCompany(input.company_id);
+  await assertCompanies(input.company_ids);
   const id = await tx(async () => {
     const newId = await createClient(input, user.id);
     await replaceContacts({ kind: 'client', id: newId }, phones, addresses, emails);
@@ -163,11 +168,20 @@ clientsRouter.get('/:id', requirePermission('travellers', 'view'), async (req, r
   });
 });
 
+/** Makes the traveller active or inactive; inactive travellers' documents raise no expiry alerts. */
+clientsRouter.put('/:id/status', requirePermission('travellers', 'edit'), async (req, res) => {
+  const client = await requireClient(req.params.id);
+  const { active } = z.object({ active: z.boolean() }).parse(req.body);
+  await setClientActive(client.id, active);
+  await audit(currentUser(req), active ? 'client_activated' : 'client_deactivated', 'client', client.id, `${client.first_name} ${client.last_name}`);
+  res.json({ client: await getClient(client.id) });
+});
+
 clientsRouter.put('/:id', requirePermission('travellers', 'edit'), async (req, res) => {
   const { id } = await requireClient(req.params.id);
   const input = clientSchema.parse(req.body);
   const { emails, phones, addresses } = contactsSchema.parse(req.body);
-  await assertCompany(input.company_id);
+  await assertCompanies(input.company_ids);
   await tx(async () => {
     await updateClient(id, input);
     await replaceContacts({ kind: 'client', id }, phones, addresses, emails);

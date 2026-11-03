@@ -22,7 +22,7 @@ import { api, notifyError, notifySuccess, queryClient } from '../api';
 import { formatTimestamp } from '../format';
 import type { Role, User } from '../types';
 import { useMe } from '../api';
-import { DEFAULT_STAFF_PERMISSIONS, useCan, type Permissions } from '../permissions';
+import { can as canUser, DEFAULT_STAFF_PERMISSIONS, useCan, type Permissions } from '../permissions';
 import { PermissionsEditor } from '../components/PermissionsEditor';
 
 interface FormState {
@@ -217,6 +217,7 @@ export function EmployeesPage() {
                   <Table.Th>Status</Table.Th>
                   <Table.Th>Alerts</Table.Th>
                   <Table.Th>2FA</Table.Th>
+                  <Table.Th>AI assistant</Table.Th>
                   <Table.Th>Last sign-in</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -251,6 +252,17 @@ export function EmployeesPage() {
                     </Table.Td>
                     <Table.Td>{u.receives_alerts ? <IconBell size={16} color="var(--mantine-primary-color-filled)" /> : '-'}</Table.Td>
                     <Table.Td>{u.totp_enabled ? 'On' : 'Off'}</Table.Td>
+                    <Table.Td>
+                      {canUser(u, 'assistant') ? (
+                        <Badge color="green" variant="light">
+                          Yes
+                        </Badge>
+                      ) : (
+                        <Badge color="gray" variant="light">
+                          No
+                        </Badge>
+                      )}
+                    </Table.Td>
                     <Table.Td>{formatTimestamp(u.last_login_at)}</Table.Td>
                   </Table.Tr>
                 ))}

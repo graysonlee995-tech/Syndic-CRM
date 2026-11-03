@@ -101,7 +101,9 @@ export function PermissionsEditor({
                         checked={has(section.key, a)}
                         disabled={disabled || (!can(granter, section.key, a) && !has(section.key, a))}
                         onChange={(e) => toggle(section.key, a, e.currentTarget.checked)}
-                        style={{ display: 'inline-block' }}
+                        // The assistant has a single right: whether this person can use it at all.
+                        label={section.key === 'assistant' ? 'Can use' : undefined}
+                        style={{ display: 'inline-block', whiteSpace: 'nowrap' }}
                       />
                     ) : (
                       <Text size="xs" c="dimmed">

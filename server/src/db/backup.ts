@@ -77,6 +77,17 @@ export async function importDatabase(backup: Backup): Promise<Record<string, num
     }
     // Backups from before quality assurance have no checklist: start from the standard one.
     await restoreDefaultQcItems();
+    // Backups from before travellers could have several companies kept one company on the traveller.
+    if ((Number(backup.schema_version) || 0) < 15) {
+      for (const c of backup.tables.clients ?? []) {
+        if (c.company_id) {
+          await run(
+            'INSERT INTO client_companies (client_id, company_id) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM companies WHERE id = ?) ON CONFLICT DO NOTHING',
+            [c.id as number, c.company_id as number, c.company_id as number],
+          );
+        }
+      }
+    }
     for (const id of await column<number>('SELECT id FROM clients')) await reindexClient(id);
     return counts;
   });

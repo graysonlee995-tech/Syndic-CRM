@@ -258,3 +258,27 @@ describe('migrations 9 and 10 (document types, IATA countries)', () => {
     await db.close();
   }, 30_000);
 });
+
+describe('migration 15 (several companies per traveller)', () => {
+  it("moves each traveller's company into the link table", async () => {
+    const { PGlite } = await import('@electric-sql/pglite');
+    const db = new PGlite();
+    const runner = {
+      query: async (text: string, values: unknown[]) => {
+        const r = await db.query<Record<string, unknown>>(text, values as never[]);
+        return { rows: r.rows, rowCount: r.affectedRows ?? 0 };
+      },
+      exec: async (sql: string) => void (await db.exec(sql)),
+    };
+    for (const m of MIGRATIONS.slice(0, 14)) typeof m === 'string' ? await db.exec(m) : await m(runner);
+    await db.exec(`
+      INSERT INTO companies (name) VALUES ('A');
+      INSERT INTO clients (first_name, last_name, company_id) VALUES ('X', 'One', 1), ('Y', 'Two', NULL);
+    `);
+    for (const m of MIGRATIONS.slice(14)) typeof m === 'string' ? await db.exec(m) : await m(runner);
+    expect((await db.query('SELECT client_id, company_id FROM client_companies')).rows).toEqual([{ client_id: 1, company_id: 1 }]);
+    const cols = await db.query<{ column_name: string }>("SELECT column_name FROM information_schema.columns WHERE table_name = 'clients'");
+    expect(cols.rows.map((c) => c.column_name)).not.toContain('company_id');
+    await db.close();
+  }, 30_000);
+});

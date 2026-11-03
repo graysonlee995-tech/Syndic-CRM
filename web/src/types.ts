@@ -19,7 +19,8 @@ export interface User {
 export interface ClientInput {
   first_name: string;
   last_name: string;
-  company_id: number | null;
+  /** Every company the traveller belongs to (all equal). */
+  company_ids: number[];
   date_of_birth: string | null;
   gender: string | null;
   nationality: string | null;
@@ -40,6 +41,10 @@ export interface ClientInput {
 
 export interface Client extends ClientInput {
   id: number;
+  /** 1 = active, 0 = inactive: an inactive traveller's documents raise no expiry alerts. */
+  is_active: number;
+  companies: { id: number; name: string }[];
+  /** All company names, e.g. "ABC CORPORATION, XYZ LTD". */
   company_name: string | null;
   created_at: string;
   updated_at: string;
@@ -63,7 +68,7 @@ export interface TravellerOption {
   id: number;
   first_name: string;
   last_name: string;
-  company_id: number | null;
+  company_ids: number[];
   company_name: string | null;
 }
 
@@ -184,7 +189,7 @@ export interface TripTraveller {
   email: string | null;
   phone: string | null;
   nationality: string | null;
-  company_id: number | null;
+  company_ids: number[];
   company_name: string | null;
   passport_expiry: string | null;
 }

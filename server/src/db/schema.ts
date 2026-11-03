@@ -14,7 +14,7 @@ const MIGRATION_1_TABLES = [
 ];
 
 /** Every table, parents before children (used by the backup and data copy scripts). */
-export const TABLES = [...MIGRATION_1_TABLES, 'trip_itinerary', 'contact_phones', 'contact_addresses', 'contact_emails', 'open_credits', 'qc_items', 'trip_qc'];
+export const TABLES = [...MIGRATION_1_TABLES, 'trip_itinerary', 'contact_phones', 'contact_addresses', 'contact_emails', 'open_credits', 'qc_items', 'trip_qc', 'client_companies', 'assistant_chats'];
 
 /**
  * Schema changes, applied in order and recorded in schema_migrations, so each
@@ -584,6 +584,43 @@ export const MIGRATIONS: Migration[] = [
   // 14: per-section permissions for staff (JSON; null keeps the standard staff rights).
   /* sql */ `
   ALTER TABLE users ADD COLUMN permissions text;
+  `,
+
+  // 15: a traveller can belong to any number of companies, all equal.
+  /* sql */ `
+  CREATE TABLE client_companies (
+    client_id integer NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    company_id integer NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    PRIMARY KEY (client_id, company_id)
+  );
+  CREATE INDEX idx_client_companies_company ON client_companies(company_id);
+  INSERT INTO client_companies (client_id, company_id) SELECT id, company_id FROM clients WHERE company_id IS NOT NULL;
+  ALTER TABLE clients DROP COLUMN company_id;
+  ALTER TABLE client_companies ENABLE ROW LEVEL SECURITY;
+  `,
+
+  // 16: saved assistant chats, one row per conversation, each owned by an employee.
+  /* sql */ `
+  CREATE TABLE assistant_chats (
+    ${id},
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    title text NOT NULL,
+    -- The conversation as the Claude API takes it, plus what the page shows with it (JSON).
+    messages text NOT NULL DEFAULT '[]',
+    pending text NOT NULL DEFAULT '[]',
+    notice text,
+    files text NOT NULL DEFAULT '{}',
+    -- Set when the employee deletes it: hidden from them, still visible to admins.
+    hidden_at timestamptz,
+    ${timestamps}
+  );
+  CREATE INDEX idx_assistant_chats_user ON assistant_chats(user_id, updated_at DESC);
+  ALTER TABLE assistant_chats ENABLE ROW LEVEL SECURITY;
+  `,
+
+  // 17: travellers can be made inactive; their documents then raise no expiry alerts.
+  /* sql */ `
+  ALTER TABLE clients ADD COLUMN is_active smallint NOT NULL DEFAULT 1;
   `,
 ];
 

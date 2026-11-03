@@ -808,3 +808,71 @@ describe('staff permissions', () => {
     expect((await agent.put(`/api/users/${adminRow.id}`).send({ name: 'Hacked' })).status).toBe(403);
   });
 });
+
+describe('travellers in several companies', () => {
+  it('links a traveller to any number of companies and shows them under each', async () => {
+    const staff = await signIn('staff@test.com');
+    const a = (await staff.post('/api/companies').send({ name: 'Multi A' })).body.company.id;
+    const b = (await staff.post('/api/companies').send({ name: 'Multi B' })).body.company.id;
+    const created = await staff.post('/api/travellers').send({ first_name: 'Two', last_name: 'Jobs', company_ids: [a, b] });
+    expect(created.status).toBe(201);
+    const id = created.body.client.id;
+    expect((await staff.get(`/api/travellers/${id}`)).body.client).toMatchObject({ company_ids: [a, b], company_name: 'MULTI A, MULTI B' });
+    for (const companyId of [a, b]) {
+      expect((await staff.get('/api/travellers').query({ companyId })).body.clients.map((c: { id: number }) => c.id)).toEqual([id]);
+    }
+    const counts = (await staff.get('/api/companies').query({ q: 'Multi', pageSize: 50 })).body.companies.filter((c: { id: number }) => [a, b].includes(c.id));
+    expect(counts.map((c: { traveller_count: number }) => c.traveller_count)).toEqual([1, 1]);
+    // Saving with one company leaves only that one; an unknown company is refused.
+    await staff.put(`/api/travellers/${id}`).send({ first_name: 'Two', last_name: 'Jobs', company_ids: [b] });
+    expect((await staff.get('/api/travellers').query({ companyId: a })).body.total).toBe(0);
+    expect((await staff.put(`/api/travellers/${id}`).send({ first_name: 'Two', last_name: 'Jobs', company_ids: [999999] })).status).toBe(400);
+    // The traveller picker on trips knows every company.
+    const option = (await staff.get('/api/travellers/options')).body.travellers.find((t: { id: number }) => t.id === id);
+    expect(option.company_ids).toEqual([b]);
+  });
+});
+
+describe('active and inactive travellers', () => {
+  it("leaves an inactive traveller's documents out of the dashboard and alerts until they are active again", async () => {
+    const staff = await signIn('staff@test.com');
+    const id = (await staff.post('/api/travellers').send({ first_name: 'Sleepy', last_name: 'Passport' })).body.client.id;
+    await staff.post(`/api/travellers/${id}/documents`).field('type', 'passport').field('expiry_date', addDays(todayInTz(timezone()), 3));
+    const onDashboard = async () => (await staff.get('/api/dashboard')).body.documents.some((d: { client_id: number }) => d.client_id === id);
+    expect(await onDashboard()).toBe(true);
+
+    const off = await staff.put(`/api/travellers/${id}/status`).send({ active: false });
+    expect(off.body.client.is_active).toBe(0);
+    expect(await onDashboard()).toBe(false);
+    const { documentsExpiringBy } = await import('../src/db/repo.js');
+    expect((await documentsExpiringBy(addDays(todayInTz(timezone()), 30))).some((d) => d.client_id === id)).toBe(false);
+    expect((await staff.get('/api/travellers').query({ status: 'inactive', q: 'Sleepy' })).body.total).toBe(1);
+    expect((await staff.get('/api/travellers').query({ status: 'active', q: 'Sleepy' })).body.total).toBe(0);
+
+    await staff.put(`/api/travellers/${id}/status`).send({ active: true });
+    expect(await onDashboard()).toBe(true);
+    const history = (await staff.get('/api/activity').query({ entity: 'client', id })).body.entries.map((e: { action: string }) => e.action);
+    expect(history).toEqual(expect.arrayContaining(['client_deactivated', 'client_activated']));
+  });
+
+  it("leaves an inactive traveller's birthday off the dashboard and reminders", async () => {
+    const staff = await signIn('staff@test.com');
+    const dob = `1990-${addDays(todayInTz(timezone()), 2).slice(5)}`;
+    const id = (await staff.post('/api/travellers').send({ first_name: 'Quiet', last_name: 'Birthday', date_of_birth: dob })).body.client.id;
+    const onDashboard = async () => (await staff.get('/api/dashboard')).body.birthdays.some((b: { id: number }) => b.id === id);
+    expect(await onDashboard()).toBe(true);
+    await staff.put(`/api/travellers/${id}/status`).send({ active: false });
+    expect(await onDashboard()).toBe(false);
+    const { clientsWithBirthdays } = await import('../src/db/repo.js');
+    expect((await clientsWithBirthdays()).some((c) => c.id === id)).toBe(false);
+    await staff.put(`/api/travellers/${id}/status`).send({ active: true });
+    expect(await onDashboard()).toBe(true);
+  });
+
+  it('needs Edit permission on Travellers', async () => {
+    const admin = await signIn('admin@test.com');
+    await admin.post('/api/users').send({ name: 'Look', email: 'look@test.com', role: 'staff', password: PASSWORD, permissions: { travellers: ['view'] } });
+    const id = (await admin.post('/api/travellers').send({ first_name: 'Look', last_name: 'Only' })).body.client.id;
+    expect((await (await signIn('look@test.com')).put(`/api/travellers/${id}/status`).send({ active: false })).status).toBe(403);
+  });
+});

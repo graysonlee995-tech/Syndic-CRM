@@ -9,8 +9,9 @@ import { assistantKey } from '../assistant/key.js';
 import { describeAction, runTool, ToolError, toolPermissionProblem, toolsFor, WRITE_TOOLS } from '../assistant/tools.js';
 import { batchContext, BULK_WRITE_TOOLS, previewBulk, WRITE_ORDER, type BatchContext } from '../assistant/bulk.js';
 import { todayInTz } from '../lib/dates.js';
-import { HttpError } from '../lib/http.js';
-import { timezone } from '../db/repo.js';
+import { HttpError, parseId } from '../lib/http.js';
+import { createChat, getChat, hideChat, listChats, renameChat, saveChat, titleFrom } from '../db/chats.js';
+import { audit, timezone } from '../db/repo.js';
 import { requirePermission } from '../auth/permissions.js';
 
 /**
@@ -62,6 +63,10 @@ const bodySchema = z.object({
   messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.unknown() })).min(1).max(400),
   /** tool_use id -> approved? for the pending actions in the last assistant message */
   decisions: z.record(z.boolean()).optional(),
+  /** The saved chat this continues; a new one is saved when left out. */
+  chatId: z.coerce.number().int().positive().optional(),
+  /** Attachment file id -> file name, shown with the saved chat. */
+  files: z.record(z.string().max(300)).optional(),
 });
 
 function toolUses(message: MessageParam | undefined): ToolUse[] {
@@ -101,6 +106,25 @@ assistantRouter.post('/chat', requirePermission('assistant', 'view'), async (req
   const anthropic = await requireAnthropic();
   const body = bodySchema.parse(req.body);
   const messages = body.messages as MessageParam[];
+  const user = currentUser(req);
+
+  // Only the employee who had a chat can continue it (admins read others' chats, read-only).
+  let chatId = body.chatId ?? null;
+  let files = body.files ?? {};
+  if (chatId) {
+    const chat = await getChat(chatId);
+    if (!chat) throw new HttpError(404, 'Chat not found');
+    if (chat.user_id !== user.id) throw new HttpError(403, "This is another employee's chat; you can read it but not continue it.");
+    files = { ...chat.files, ...files };
+  }
+
+  /** Saves the conversation (creating the chat on its first reply) and answers the browser. */
+  const respond = async (out: { messages: MessageParam[]; pending?: unknown[]; notice?: string }) => {
+    const state = { messages: out.messages, pending: out.pending ?? [], notice: out.notice ?? null, files };
+    if (chatId) await saveChat(chatId, state);
+    else chatId = await createChat(user.id, titleFrom(firstQuestion(out.messages)), state);
+    res.json({ ...out, chatId });
+  };
 
   // Answering pending actions: run the last assistant turn's tool calls now.
   const waiting = toolUses(messages.at(-1));
@@ -147,16 +171,16 @@ assistantRouter.post('/chat', requirePermission('assistant', 'view'), async (req
     messages.push({ role: 'assistant', content: response.content });
 
     if (response.stop_reason === 'refusal') {
-      res.json({ messages, notice: 'The assistant declined this request.' });
+      await respond({ messages, notice: 'The assistant declined this request.' });
       return;
     }
     if (response.stop_reason === 'max_tokens') {
       // A cut-off reply may hold half a tool call; never run it.
-      res.json({ messages: messages.slice(0, -1), notice: 'The reply was too long and was stopped. Ask for fewer rows at a time.' });
+      await respond({ messages: messages.slice(0, -1), notice: 'The reply was too long and was stopped. Ask for fewer rows at a time.' });
       return;
     }
     if (response.stop_reason !== 'tool_use') {
-      res.json({ messages });
+      await respond({ messages });
       return;
     }
 
@@ -176,13 +200,69 @@ assistantRouter.post('/chat', requirePermission('assistant', 'view'), async (req
             : null;
         pending.push({ id: u.id, name: u.name, summary: describeAction(u.name, u.input as Record<string, unknown>), preview });
       }
-      res.json({ messages, pending });
+      await respond({ messages, pending });
       return;
     }
     messages.push({ role: 'user', content: await runTools(uses, {}, req) });
   }
 
-  res.json({ messages, notice: 'The assistant stopped after many look-ups. Ask a narrower question.' });
+  await respond({ messages, notice: 'The assistant stopped after many look-ups. Ask a narrower question.' });
+});
+
+/** The text of the first thing the employee asked, for the chat's title. */
+function firstQuestion(messages: MessageParam[]): string {
+  const first = messages.find((m) => m.role === 'user');
+  if (!first) return '';
+  if (typeof first.content === 'string') return first.content;
+  const text = first.content.find((b) => b.type === 'text');
+  return text && 'text' in text ? text.text : 'Attached files';
+}
+
+// ---------------------------------------------------------------- saved chats
+
+const listSchema = z.object({
+  /** Admins: every employee's chats. */
+  all: z.enum(['1', 'true']).optional(),
+  userId: z.coerce.number().int().positive().optional(),
+  q: z.string().max(200).optional(),
+});
+
+assistantRouter.get('/chats', requirePermission('assistant', 'view'), async (req, res) => {
+  const user = currentUser(req);
+  const query = listSchema.parse(req.query);
+  const all = Boolean(query.all) && user.role === 'admin';
+  res.json({ chats: await listChats({ userId: user.id, all, ofUser: all ? query.userId : null, q: query.q }) });
+});
+
+/** The employee's own chat, or any chat for an admin (read-only when it isn't theirs). */
+async function readableChat(req: Parameters<typeof currentUser>[0], rawId: unknown) {
+  const user = currentUser(req);
+  const chat = await getChat(parseId(rawId));
+  const mine = chat && chat.user_id === user.id && !chat.hidden;
+  if (!chat || (!mine && user.role !== 'admin')) throw new HttpError(404, 'Chat not found');
+  return { chat, mine: Boolean(mine) };
+}
+
+assistantRouter.get('/chats/:id', requirePermission('assistant', 'view'), async (req, res) => {
+  const { chat, mine } = await readableChat(req, req.params.id);
+  if (!mine) await audit(currentUser(req), 'assistant_chat_viewed', 'user', chat.user_id, `chat #${chat.id} "${chat.title}"`);
+  res.json({ chat, readOnly: !mine });
+});
+
+assistantRouter.put('/chats/:id', requirePermission('assistant', 'view'), async (req, res) => {
+  const { chat, mine } = await readableChat(req, req.params.id);
+  if (!mine) throw new HttpError(403, "You can only rename your own chats.");
+  const { title } = z.object({ title: z.string().trim().min(1, 'is required').max(120) }).parse(req.body);
+  await renameChat(chat.id, title);
+  res.json({ ok: true });
+});
+
+/** Removes the chat from the employee's list; admins can still read it. */
+assistantRouter.delete('/chats/:id', requirePermission('assistant', 'view'), async (req, res) => {
+  const { chat, mine } = await readableChat(req, req.params.id);
+  if (!mine) throw new HttpError(403, 'You can only delete your own chats.');
+  await hideChat(chat.id);
+  res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------- attachments
